@@ -3,3 +3,10 @@ node_modules/
 *.mp4
 *.ts
 .env
+credentials.json
+.DS_Store
+google-oauth.json
+cloud-backend/node_modules/
+token.json
+o;d.json
+
