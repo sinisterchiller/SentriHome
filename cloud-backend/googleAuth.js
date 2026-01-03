@@ -2,7 +2,7 @@ import fs from "fs";
 import { google } from "googleapis";
 import open from "open";
 
-const CREDENTIALS_PATH = "./google-oauth.json";
+const CREDENTIALS_PATH = "./credentials.json";
 const TOKEN_PATH = "./tokens.json";
 const SCOPES = ["https://www.googleapis.com/auth/drive.file"];
 

@@ -1,15 +1,14 @@
 {
-  "name": "cloud-backend",
+  "name": "rasberry_pi_app",
   "version": "1.0.0",
-  "description": "A cloud storage",
+  "description": "",
   "license": "ISC",
-  "author": "SINK",
+  "author": "Safir, Koushik, Neaz, Ishayat",
   "type": "module",
-  "main": "server.js",
+  "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "node server.js",
-    "start": "node server.js"
+    "start": "node index.js"
   },
   "dependencies": {
     "express": "^5.2.1"
