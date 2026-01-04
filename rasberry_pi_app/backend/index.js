@@ -5,6 +5,7 @@ import { startStream, stopStream, getStreamState, forceUpdateState } from "./str
 import { startBufferCleanup } from "./bufferCleanup.js";
 import { extractClip } from "./clipExtractor.js";
 import { startUploader } from "./uploader.js";
+import { startUdpListener } from "./udpListener.js";
 
 
 const app = express();
@@ -158,4 +159,9 @@ app.delete("/clear-all", (_req, res) => {
 
 app.listen(4000, () => {
   console.log("📹 Raspberry Pi App running on http://localhost:4000");
+  
+  // Start background services
+  startBufferCleanup();
+  startUploader();
+  startUdpListener();
 });

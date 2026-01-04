@@ -16,5 +16,14 @@
     "attempts": 0,
     "lastError": null,
     "createdAt": "2026-01-04T00:26:23.104Z"
+  },
+  {
+    "id": "1767490503120",
+    "videoPath": "/Users/sh/Documents/AI Library/Projects/Home-Security-V2/Home-Security/rasberry_pi_app/backend/events/event_1767490502494.mp4",
+    "thumbnailPath": "/Users/sh/Documents/AI Library/Projects/Home-Security-V2/Home-Security/rasberry_pi_app/backend/events/event_1767490502494.jpg",
+    "status": "uploaded",
+    "attempts": 0,
+    "lastError": null,
+    "createdAt": "2026-01-04T01:35:03.120Z"
   }
 ]

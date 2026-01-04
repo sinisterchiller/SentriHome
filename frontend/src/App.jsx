@@ -23,11 +23,11 @@ export default function App() {
       const data = await getHealth();
       setHealth(data);
 
-      // Sync playing state with backend on refresh
-      if (data?.stream?.running && data?.hls?.playlist) {
+      // Only sync playing state on initial load (when playing is false and stream is actually running)
+      // Don't override user's explicit start/stop actions
+      if (!playing && data?.stream?.running && data?.hls?.playlist) {
+        console.log("🔄 Syncing: Backend stream detected, setting playing=true");
         setPlaying(true);
-      } else if (!data?.stream?.running) {
-        setPlaying(false);
       }
 
       // Optional: if your backend returns events list, use it:
