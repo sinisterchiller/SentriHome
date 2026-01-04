@@ -1,20 +1,16 @@
 import fs from "fs";
 import { google } from "googleapis";
-import open from "open";
 
-const CREDENTIALS_PATH = "./credentials.json";
-const TOKEN_PATH = "./tokens.json";
+
 const SCOPES = ["https://www.googleapis.com/auth/drive.file"];
+const TOKEN_PATH = "token.json";
 
-function createOAuthClient() {
-  const creds = JSON.parse(fs.readFileSync(CREDENTIALS_PATH));
-
-  const config = creds.installed || creds.web;
+export function createOAuthClient() {
+  const creds = JSON.parse(fs.readFileSync("credentials.json", "utf8"));
+  const config = creds.web || creds.installed;
 
   if (!config) {
-    throw new Error(
-      "Invalid OAuth file: expected 'installed' or 'web' key"
-    );
+    throw new Error("Invalid OAuth credentials file");
   }
 
   const { client_id, client_secret, redirect_uris } = config;
@@ -30,27 +26,29 @@ function createOAuthClient() {
   );
 }
 
-export function startOAuth(req, res) {
-  const client = createOAuthClient();
-
-  const url = client.generateAuthUrl({
+export function getAuthUrl(oauth2Client) {
+  return oauth2Client.generateAuthUrl({
     access_type: "offline",
     scope: SCOPES,
-    prompt: "consent"
+    prompt: "consent",
   });
-
-  open(url);
-  res.send("OAuth started. Check your browser.");
 }
 
-export async function oauthCallback(req, res) {
-  const code = req.query.code;
-  if (!code) return res.status(400).send("Missing code");
-
-  const client = createOAuthClient();
-  const { tokens } = await client.getToken(code);
+export async function handleOAuthCallback(oauth2Client, code) {
+  const { tokens } = await oauth2Client.getToken(code);
+  oauth2Client.setCredentials(tokens);
 
   fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokens, null, 2));
+}
 
-  res.send("✅ Google Drive connected. You may close this tab.");
+export function getAuthorizedClient() {
+  if (!fs.existsSync(TOKEN_PATH)) {
+    throw new Error("User not authenticated with Google");
+  }
+
+  const oauth2Client = createOAuthClient();
+  const tokens = JSON.parse(fs.readFileSync(TOKEN_PATH, "utf8"));
+  oauth2Client.setCredentials(tokens);
+
+  return oauth2Client;
 }

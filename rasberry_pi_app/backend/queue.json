@@ -1,0 +1,20 @@
+[
+  {
+    "id": "1767444726092",
+    "videoPath": "/Users/sh/Documents/AI Library/Projects/Home-Security-V2/Home-Security/rasberry_pi_app/backend/events/event_1767444719996.mp4",
+    "thumbnailPath": "/Users/sh/Documents/AI Library/Projects/Home-Security-V2/Home-Security/rasberry_pi_app/backend/events/event_1767444719996.jpg",
+    "status": "uploaded",
+    "attempts": 0,
+    "lastError": null,
+    "createdAt": "2026-01-03T12:52:06.092Z"
+  },
+  {
+    "id": "1767486383104",
+    "videoPath": "/Users/sh/Documents/AI Library/Projects/Home-Security-V2/Home-Security/rasberry_pi_app/backend/events/event_1767486382447.mp4",
+    "thumbnailPath": "/Users/sh/Documents/AI Library/Projects/Home-Security-V2/Home-Security/rasberry_pi_app/backend/events/event_1767486382447.jpg",
+    "status": "uploaded",
+    "attempts": 0,
+    "lastError": null,
+    "createdAt": "2026-01-04T00:26:23.104Z"
+  }
+]

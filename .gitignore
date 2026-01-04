@@ -9,4 +9,9 @@ google-oauth.json
 cloud-backend/node_modules/
 token.json
 o;d.json
+test.mp4
+*.jpg
+*.ts
+*.m3u8
+
 

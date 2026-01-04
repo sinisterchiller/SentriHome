@@ -1,9 +1,11 @@
 import express from "express";
 import fs from "fs";
 import path from "path";
-import { startStream, stopStream, getStreamState } from "./streamManager.js";
+import { startStream, stopStream, getStreamState, forceUpdateState } from "./streamManager.js";
 import { startBufferCleanup } from "./bufferCleanup.js";
 import { extractClip } from "./clipExtractor.js";
+import { startUploader } from "./uploader.js";
+
 
 const app = express();
 app.use(express.json());
@@ -27,6 +29,8 @@ app.use(
 
 // Start ring-buffer cleanup
 startBufferCleanup();
+startUploader();
+
 
 // Build FFmpeg input args
 function buildInputArgs(type, value) {
@@ -65,21 +69,26 @@ app.post("/start", (req, res) => {
 });
 
 // Stop stream
-app.post("/stop", (_req, res) => {
-  const stopped = stopStream();
-  if (!stopped) return res.status(409).json({ error: "No active stream" });
-  res.json({ status: "ok", message: "Stream stopped" });
+app.post("/stop", async (req, res) => {
+  try {
+    const stopped = await stopStream();
+    if (!stopped) return res.status(409).json({ error: "No active stream" });
+    res.json({ status: "ok", message: "Stream stopped" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Motion trigger
-app.post("/motion", (_req, res) => {
-  extractClip({ beforeSeconds: 5, afterSeconds: 5 });
-  res.send("Motion event captured");
+app.post("/motion", async (_req, res) => {
+  const saved = await extractClip({ beforeSeconds: 5, afterSeconds: 5 });
+  res.json({ status: "ok", saved: !!saved, file: saved });
 });
 
 // Health check
 app.get("/health", (_req, res) => {
   const state = getStreamState();
+  console.log("🔍 Health check - state:", state);
 
   let hlsSegments = [];
   if (fs.existsSync("hls")) {
@@ -93,6 +102,58 @@ app.get("/health", (_req, res) => {
       segmentCount: hlsSegments.length,
     }
   });
+});
+
+// Debug endpoint
+app.get("/debug/state", (_req, res) => {
+  const state = forceUpdateState();
+  res.json({
+    debug: true,
+    state,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Clear all local data
+app.delete("/clear-all", (_req, res) => {
+  try {
+    // Clear events directory
+    if (fs.existsSync("events")) {
+      const files = fs.readdirSync("events");
+      files.forEach(file => {
+        fs.unlinkSync(path.join("events", file));
+      });
+    }
+
+    // Clear buffer directory
+    if (fs.existsSync("buffer")) {
+      const files = fs.readdirSync("buffer");
+      files.forEach(file => {
+        fs.unlinkSync(path.join("buffer", file));
+      });
+    }
+
+    // Clear HLS directory
+    if (fs.existsSync("hls")) {
+      const files = fs.readdirSync("hls");
+      files.forEach(file => {
+        fs.unlinkSync(path.join("hls", file));
+      });
+    }
+
+    // Clear upload queue
+    if (fs.existsSync("queue.json")) {
+      fs.unlinkSync("queue.json");
+    }
+
+    res.json({ 
+      status: "ok", 
+      message: "All local data cleared" 
+    });
+  } catch (err) {
+    console.error("❌ Clear local data failed:", err.message);
+    res.status(500).json({ error: "Failed to clear local data" });
+  }
 });
 
 app.listen(4000, () => {
