@@ -1,0 +1,20 @@
+{
+  "C_Cpp.intelliSenseEngine": "default",
+  "idf.espIdfPath": "/Users/anuragkoushik/Desktop/Deployment/HomeSecurity-local/v5.5.2/esp-idf",
+  "idf.pythonInstallPath": "/usr/local/bin/python3",
+  "idf.openOcdConfigs": [
+    "interface/ftdi/esp32_devkitj_v1.cfg",
+    "target/esp32.cfg"
+  ],
+  "idf.port": "detect",
+  "idf.toolsPath": "/Users/anuragkoushik/.espressif",
+  "idf.customExtraVars": {
+    "IDF_TARGET": "esp32"
+  },
+  "clangd.path": "/Users/anuragkoushik/.espressif/tools/esp-clang/esp-19.1.2_20250312/esp-clang/bin/clangd",
+  "clangd.arguments": [
+    "--background-index",
+    "--query-driver=**",
+    "--compile-commands-dir=/Users/anuragkoushik/Desktop/Deployment/HomeSecurity-local/ESP32_Files/vscodeESPIDF/wroom-sensor-firmware5.5.2/build"
+  ]
+}
