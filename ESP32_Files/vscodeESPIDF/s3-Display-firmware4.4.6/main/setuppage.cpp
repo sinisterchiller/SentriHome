@@ -667,20 +667,9 @@ void handleSaveWifi() {
 
   server.send(200, "text/plain", "WiFi credentials saved");
 
-  String json = "{\"ssid\":\"" + wifiSSID + "\",\"password\":\"" + wifiPASS + "\"}";
-  
-  // Write to SPIFFS
-  File f = SPIFFS.open("/wificreds.json", "w");
-  if (f) {
-    f.print(json);
-    f.close();
-    Serial.println("WiFi credentials saved to SPIFFS");
-    server.send(200, "application/json", "{\"status\":\"saved\"}");
-  } else {
-    Serial.println("Failed to open file for writing");
-    server.send(500, "text/plain", "Failed to save");
-    return;
-  }
+  littlefsWriteFile("wifissid.txt", wifiSSID);
+  littlefsWriteFile("wifipass.txt", wifiPASS);
+
 
   WiFi.begin(wifiSSID.c_str(), wifiPASS.c_str());
 

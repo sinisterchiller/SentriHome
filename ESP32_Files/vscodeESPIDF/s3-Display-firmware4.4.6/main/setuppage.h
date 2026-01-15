@@ -5,6 +5,7 @@
 #include <WebServer.h>
 #include "SPIFFS.h"
 #include "ArduinoJson.h"
+#include "filesys.h"
 
 extern WebServer server;
 extern int setupstate;

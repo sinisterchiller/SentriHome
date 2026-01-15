@@ -266,5 +266,5 @@ if(NOT CONFIG_ARDUINO_SELECTIVE_COMPILATION OR CONFIG_ARDUINO_SELECTIVE_ArduinoO
     maybe_add_component(esp_https_ota)
 endif()
 if(NOT CONFIG_ARDUINO_SELECTIVE_COMPILATION OR CONFIG_ARDUINO_SELECTIVE_LITTLEFS)
-    maybe_add_component(esp_littlefs)
+    maybe_add_component(joltwallet__littlefs)
 endif()
