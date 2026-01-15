@@ -23,17 +23,15 @@ void displayinit(){
   tft.setTextColor(TFT_BLACK, TFT_WHITE);  tft.setTextSize(1);
   tft.println("calibration run");
 
-  // check file system
-  if (!SPIFFS.begin()) {
-    Serial.println("formatting file system");
-
-    SPIFFS.format();
-    SPIFFS.begin();
-  }
+  // Initialize LittleFS
+  // if (!LittleFS.begin(true)) {  // true = format if mount fails
+  //   Serial.println("LittleFS mount failed");
+  //   return;
+  // }
 
   // check if calibration file exists
-  if (SPIFFS.exists(CALIBRATION_FILE)) {
-    File f = SPIFFS.open(CALIBRATION_FILE, "r");
+  if (LittleFS.exists(CALIBRATION_FILE)) {
+    File f = LittleFS.open(CALIBRATION_FILE, "r");
     if (f) {
       if (f.readBytes((char *)calibrationData, 14) == 14)
         calDataOK = 1;
@@ -47,7 +45,7 @@ void displayinit(){
     // data not valid. recalibrate
     tft.calibrateTouch(calibrationData, TFT_WHITE, TFT_RED, 15);
     // store data
-    File f = SPIFFS.open(CALIBRATION_FILE, "w");
+    File f = LittleFS.open(CALIBRATION_FILE, "w");
     if (f) {
       f.write((const unsigned char *)calibrationData, 14);
       f.close();

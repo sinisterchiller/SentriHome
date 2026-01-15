@@ -1,8 +1,7 @@
 #include "wifi_udp.h"
 #include "setuppage.h"
 
-// const char* ssid = "generic8098098098098098";
-// const char* password = "generic";
+
 
 const char* DEVICE_NAME = "ESP_DISPLAY";
 const char* targetIP = "192.168.10.2"; 
@@ -14,10 +13,11 @@ unsigned long lastSend = 0;
 char wifiReceiveBuffer[128];
 
 void wifi_init(void) {
-  
+  String ssid = littlefsReadFile("wifissid.txt");
+  String password = littlefsReadFile("wifipass.txt");
   
   WiFi.mode(WIFI_AP);
-  // WiFi.begin(ssid, password);
+  WiFi.begin(ssid, password);
   // Serial.print("Connecting");
   // while (WiFi.status() != WL_CONNECTED) {
   //   Serial.print(".");

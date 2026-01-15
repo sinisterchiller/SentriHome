@@ -3,9 +3,7 @@
 
 #include <WiFi.h>
 #include <WiFiUdp.h>
-
-extern const char* ssid;
-extern const char* password;
+#include "filesys.h"
 
 extern const char* DEVICE_NAME;
 extern const char* targetIP;
