@@ -6,7 +6,11 @@ void displaySetupPage(){
     tft.setCursor(0, 0);
     tft.println("Exit");
     tft.println("\nConnect to the WIFI \nESP32_Master_Config\nGo to 192.168.10.1\n\nRESET");
-    server.begin();
+    static bool serverStarted = false;
+    if (!serverStarted) {
+        server.begin();
+        serverStarted = true;
+    }
 
     uint16_t x, y;
     if (tft.getTouch(&x, &y)){
@@ -17,6 +21,7 @@ void displaySetupPage(){
             tft.println("Exit");
             tft.println("\nConnect to the WIFI \nESP32_Master_Config\nGo to 192.168.10.1\n\nRESET");
             server.stop();
+            serverStarted = false;
 
             homepage = true;
             setuppage = false;

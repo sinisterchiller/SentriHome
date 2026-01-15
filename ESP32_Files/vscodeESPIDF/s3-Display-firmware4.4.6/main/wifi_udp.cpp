@@ -1,11 +1,11 @@
 #include "wifi_udp.h"
 #include "setuppage.h"
 
-const char* ssid = wifiSSID.c_str();
-const char* password = wifiPASS.c_str();
+// const char* ssid = "generic8098098098098098";
+// const char* password = "generic";
 
 const char* DEVICE_NAME = "ESP_DISPLAY";
-const char* targetIP = "192.168.1.73";
+const char* targetIP = "192.168.10.2"; 
 const int udpPort = 5005;
 int trys = 0;
 
@@ -16,21 +16,21 @@ char wifiReceiveBuffer[128];
 void wifi_init(void) {
   
   
-  WiFi.mode(WIFI_AP_STA);
-  WiFi.begin(ssid, password);
-  Serial.print("Connecting");
-  while (WiFi.status() != WL_CONNECTED) {
-    Serial.print(".");
-    delay(400);
-    trys++;
-    if (trys == 10){
-      break;
-    }
-  }
+  WiFi.mode(WIFI_AP);
+  // WiFi.begin(ssid, password);
+  // Serial.print("Connecting");
+  // while (WiFi.status() != WL_CONNECTED) {
+  //   Serial.print(".");
+  //   delay(400);
+  //   trys++;
+  //   if (trys == 10){
+  //     break;
+  //   }
+  // }
 
-  Serial.println("\nConnected!");
-  Serial.print("My IP: ");
-  Serial.println(WiFi.localIP());
+  // Serial.println("\nConnected!");
+  // Serial.print("My IP: ");
+  // Serial.println(WiFi.localIP());
 
   udp.begin(udpPort);
   Serial.println("UDP listening...");

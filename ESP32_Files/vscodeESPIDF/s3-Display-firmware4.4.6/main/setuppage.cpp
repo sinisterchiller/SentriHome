@@ -1,7 +1,4 @@
 #include "setuppage.h"
-#include <Preferences.h>
-
-Preferences prefs;
 
 WebServer server(80);
 
@@ -670,10 +667,20 @@ void handleSaveWifi() {
 
   server.send(200, "text/plain", "WiFi credentials saved");
 
-  prefs.begin("wificreds", false);   // read/write
-  prefs.putString("ssid", wifiSSID);
-  prefs.putString("password", wifiPASS);
-  prefs.end();
+  String json = "{\"ssid\":\"" + wifiSSID + "\",\"password\":\"" + wifiPASS + "\"}";
+  
+  // Write to SPIFFS
+  File f = SPIFFS.open("/wificreds.json", "w");
+  if (f) {
+    f.print(json);
+    f.close();
+    Serial.println("WiFi credentials saved to SPIFFS");
+    server.send(200, "application/json", "{\"status\":\"saved\"}");
+  } else {
+    Serial.println("Failed to open file for writing");
+    server.send(500, "text/plain", "Failed to save");
+    return;
+  }
 
   WiFi.begin(wifiSSID.c_str(), wifiPASS.c_str());
 
@@ -683,13 +690,10 @@ void setuppage_init() {
   delay(1000);
 
   // -------- Start Wi-Fi Hotspot (Access Point) --------
-  const char* apSsid = "ESP32_Master_Config";   // <-- hotspot name
-  const char* apPass = "12345678";              // <-- hotspot password (min 8 chars)
+  const char* apSsid = "ESP32_Master_Config";   
+  const char* apPass = "12345678";              
+  
 
-  prefs.begin("wificreds", true);  // read-only
-  wifiSSID = prefs.getString("ssid", "");
-  wifiPASS = prefs.getString("password", "");
-  prefs.end();
 
   // If credentials exist, try connecting first
   if (wifiSSID.length() > 0 && wifiPASS.length() > 0) {
@@ -698,7 +702,21 @@ void setuppage_init() {
     WiFi.begin(wifiSSID.c_str(), wifiPASS.c_str());
     // Wait a bit for connection, then fall back to AP if needed
   }
+  else {
+    WiFi.mode(WIFI_AP);
+  }
   
+  if (SPIFFS.exists("/wificreds.json")) {
+    File file = SPIFFS.open("/wificreds.json", "r");
+    if (file) {
+      StaticJsonDocument<256> doc;
+      DeserializationError error = deserializeJson(doc, file);
+      wifiSSID = doc["ssid"].as<String>();
+      wifiPASS = doc["password"].as<String>(); 
+      file.close();
+    }
+  }
+
   IPAddress apIP(192,168,10,1);
   IPAddress gateway(192,168,10,1);
   IPAddress subnet(255,255,255,0);

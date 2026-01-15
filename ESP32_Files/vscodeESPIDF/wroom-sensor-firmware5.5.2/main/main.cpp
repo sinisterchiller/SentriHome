@@ -10,11 +10,11 @@
 #define TRIG 17
 
 //////////////////////////////////wifisetup/////////////////////////////////////
-const char* ssid = "vvlowspeed";
-const char* password = "10022024";
+const char* ssid = "ESP32_Master_Config";
+const char* password = "12345678";
 
-const char* DEVICE_NAME = "ESP_MOTIONSENSOR";   // <-- change to ESP_B on the other board
-const char* targetIP   = "192.168.1.72"; // <-- put the OTHER ESP's IP here
+const char* DEVICE_NAME = "ESP_MOTION";   // <-- change to ESP_B on the other board
+const char* targetIP   = "192.168.10.1"; // <-- put the OTHER ESP's IP here
 const int   udpPort    = 5005;
 
 WiFiUDP udp;
@@ -127,16 +127,16 @@ void loop() {
   }
 
   // ---- SEND ----
-  /*if (millis() - lastSend > 1000) {
-    lastSend = millis();
+  // if (millis() - lastSend > 1000) {
+  //   lastSend = millis();
 
-    udp.beginPacket(targetIP, udpPort);
-    udp.printf("Distance: %.3f from ", distance);
-    udp.print(DEVICE_NAME);
-    udp.endPacket();
+  //   udp.beginPacket(targetIP, udpPort);
+  //   udp.printf("Distance: %.3f from ", distance);
+  //   udp.print(DEVICE_NAME);
+  //   udp.endPacket();
 
-    Serial.println("Sent message");
-  }*/
+  //   Serial.println("Sent message");
+  // }
   /////////////////////////////wifisetup////////////////////////////////////////////
   
   /////////////////////////////TURN ON MOTION DETECTOR////////////////////////////////////////////
@@ -154,7 +154,7 @@ void loop() {
           delay(10);
         }
         if (count == 1){
-          const char* targetIP   = "192.168.1.72"; //to esp32 s3
+          const char* targetIP   = "192.168.10.1"; //to esp32 s3
           const int   udpPort    = 5005;
           udp.beginPacket(targetIP, udpPort);
           udp.printf("INTRUDER INTRUDER \n");

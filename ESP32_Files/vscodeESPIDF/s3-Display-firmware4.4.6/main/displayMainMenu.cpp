@@ -52,6 +52,7 @@ void displayMainMenu(){
                 motiondetectorstate = true;
                 wifi_send("turnonmotiondetectorespmotion");
                 delay(1000);
+                wifi_send("idle");
             }
             else if (motiondetectorstate){
                 delay(1000);

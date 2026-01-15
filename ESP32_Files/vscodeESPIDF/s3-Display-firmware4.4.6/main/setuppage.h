@@ -3,6 +3,8 @@
 
 #include <WiFi.h>
 #include <WebServer.h>
+#include "SPIFFS.h"
+#include "ArduinoJson.h"
 
 extern WebServer server;
 extern int setupstate;

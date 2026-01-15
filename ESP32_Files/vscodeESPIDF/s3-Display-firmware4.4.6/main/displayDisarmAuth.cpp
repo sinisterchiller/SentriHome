@@ -182,6 +182,8 @@ void displayDisarmAuthPage(){
                 keypadcursor = 180;
 
                 wifi_send("turnoffmotiondetectorespmotion");
+                delay(1000);
+                wifi_send("idle");
                 motiondetectorstate = false;
                 homepage = true;
                 setuppage = false;
