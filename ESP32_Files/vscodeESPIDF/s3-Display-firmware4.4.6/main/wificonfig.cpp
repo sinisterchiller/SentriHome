@@ -39,9 +39,15 @@ bool nonblockingdelay(unsigned long time){
 void wifiInit(){
     wifissid = littlefsReadFile("/wifissid.txt");
     wifipassword = littlefsReadFile("/wifipass.txt");
-    WiFi.mode(WIFI_STA);
+    WiFi.mode(WIFI_AP_STA);
     WiFi.begin(wifissid, wifipassword);
 
+    IPAddress apIP(192,168,10,1);
+    IPAddress gateway(192,168,10,1);
+    IPAddress subnet(255,255,255,0);
+    WiFi.softAPConfig(apIP, gateway, subnet);
+    //WiFi.mode(WIFI_AP_STA);
+    WiFi.softAP("ESP32_Master_Config", "12345678");
     
     server.on("/", HTTP_GET, handleRoot);
     server.on("/save-wifi", HTTP_POST, handleSaveWifi);
@@ -50,13 +56,13 @@ void wifiInit(){
 
 void wifiupdate(){
     if (WiFi.status() == WL_DISCONNECTED){
-      Serial.printf("Disconnected\n");
+      //Serial.printf("Disconnected\n");
         if (nonblockingdelay(2000)) {
             WiFi.begin(wifissid, wifipassword);
         }
     }
     else if (WiFi.status() == WL_CONNECTED){
-      Serial.printf("Connected to %s\n", WiFi.SSID().c_str());
+      //Serial.printf("Connected to %s\n", WiFi.SSID().c_str());
     }
 }
 
@@ -750,12 +756,7 @@ void handleSaveWifi() {
 
 void setuppageweb(){
     if (!homepage && setuppage && !disarmauthpage){
-        IPAddress apIP(192,168,10,1);
-        IPAddress gateway(192,168,10,1);
-        IPAddress subnet(255,255,255,0);
-        WiFi.softAPConfig(apIP, gateway, subnet);
-        WiFi.mode(WIFI_AP_STA);
-        WiFi.softAP("ESP32_Master_Config", "12345678");
+        
         if (!serverStarted) {
             server.begin();
             serverStarted = true;
@@ -763,7 +764,7 @@ void setuppageweb(){
         server.handleClient();
     }
     else{
-        WiFi.mode(WIFI_STA);
+        //WiFi.mode(WIFI_STA);
         server.stop();
         serverStarted = false;
     }

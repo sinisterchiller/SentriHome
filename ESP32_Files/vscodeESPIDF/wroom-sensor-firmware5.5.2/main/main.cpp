@@ -14,7 +14,8 @@ const char* ssid = "ESP32_Master_Config";
 const char* password = "12345678";
 
 const char* DEVICE_NAME = "ESP_MOTION";   // <-- change to ESP_B on the other board
-const char* targetIP   = "192.168.10.1"; // <-- put the OTHER ESP's IP here
+String ipgiven = WiFi.localIP().toString();
+const char* targetIP   = ipgiven.c_str(); // <-- put the OTHER ESP's IP here
 const int   udpPort    = 5005;
 
 WiFiUDP udp;
