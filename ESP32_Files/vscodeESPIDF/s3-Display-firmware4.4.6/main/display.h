@@ -5,8 +5,7 @@
 #include "SPI.h"
 #include "TFT_eSPI.h"
 #include "filesys.h"
-#include "setuppage.h"
-#include "wifi_udp.h"
+#include "wificonfig.h"
 
 #define CALIBRATION_FILE "/calibrationData"
 
