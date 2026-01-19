@@ -150,12 +150,23 @@ void displayDisarmAuthPage(){
         }
         if ( (x >= 400) && (y >= 10) && (y <= 110)){
             keypadcursor -= 20;
-            tft.fillRect(keypadcursor, 20, 20, 30, TFT_BLACK);
+            if (keypadcursor < 180){
+                tft.fillRect(180, 20, 20, 30, TFT_BLACK);
+            }
+            else{
+                tft.fillRect(keypadcursor, 20, 20, 30, TFT_BLACK);
+            }
             passpos--;
             delay(200);
         }
         if (keypadcursor <= 180){
             keypadcursor = 180;
+        }
+        if (passpos < 0){
+            passpos = 0;
+        }
+        if (passpos >= 14){
+            passpos = 14;
         }
         if ( (x >= 420) && (y >= 130)){
             userpass[passpos] = '\0';

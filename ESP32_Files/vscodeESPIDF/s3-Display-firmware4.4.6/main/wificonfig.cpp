@@ -40,6 +40,8 @@ void wifiInit(){
     wifissid = littlefsReadFile("/wifissid.txt");
     wifipassword = littlefsReadFile("/wifipass.txt");
     WiFi.mode(WIFI_AP_STA);
+    wifissid.trim();
+    wifipassword.trim();
     WiFi.begin(wifissid, wifipassword);
 
     IPAddress apIP(192,168,10,1);
@@ -55,7 +57,7 @@ void wifiInit(){
 }
 
 void wifiupdate(){
-    if (WiFi.status() == WL_DISCONNECTED){
+    if (WiFi.status() == WL_DISCONNECTED || WiFi.status() == WL_CONNECTION_LOST){
       //Serial.printf("Disconnected\n");
         if (nonblockingdelay(2000)) {
             WiFi.begin(wifissid, wifipassword);
@@ -80,15 +82,17 @@ void wifi_send(const char* message) {
 
 int wifi_receive(void) {
   int packetSize = udp.parsePacket();
-  if (packetSize) {
-    int len = udp.read(wifiReceiveBuffer, sizeof(wifiReceiveBuffer) - 1);
-    wifiReceiveBuffer[len] = 0;
-    Serial.print("Received: ");
-    Serial.println(wifiReceiveBuffer);
-    return len;
-  }
-  return 0;
+  if (packetSize <= 0) return 0;
+
+  int len = udp.read(wifiReceiveBuffer, sizeof(wifiReceiveBuffer) - 1);
+  if (len <= 0) return 0;                 // guards -1/0
+
+  wifiReceiveBuffer[len] = '\0';
+  Serial.print("Received: ");
+  Serial.println(wifiReceiveBuffer);
+  return len;
 }
+
 
 
 // ================== HTML PAGE ==================
@@ -743,6 +747,8 @@ void handleSaveWifi() {
     wifipassword = server.arg("wifiPassword");
 
     Serial.println("Received WiFi credentials:");
+    wifissid.trim();
+    wifipassword.trim();
     Serial.println("SSID: " + wifissid);
     Serial.println("PASS: " + wifipassword);
 
@@ -764,8 +770,9 @@ void setuppageweb(){
         server.handleClient();
     }
     else{
-        //WiFi.mode(WIFI_STA);
-        server.stop();
-        serverStarted = false;
+        if (serverStarted) {
+          server.stop();
+          serverStarted = false;
+        }
     }
 }
