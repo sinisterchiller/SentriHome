@@ -59,10 +59,10 @@ void display(){
   if (homepage && !setuppage && !disarmauthpage){
     displayMainMenu();
   }
-  if (!homepage && setuppage & !disarmauthpage){
+  if (!homepage && setuppage && !disarmauthpage){
     displaySetupPage();
   }
-  if (!homepage && !setuppage & disarmauthpage){
+  if (!homepage && !setuppage && disarmauthpage){
     displayDisarmAuthPage();
   }
 }
