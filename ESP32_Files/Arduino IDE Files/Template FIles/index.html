@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Device Configuration</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .page {
+            display: none;
+        }
+
+        .page.active {
+            display: block;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+            text-align: center;
+            font-size: 28px;
+        }
+
+        h2 {
+            color: #667eea;
+            margin-bottom: 30px;
+            text-align: center;
+            font-size: 24px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: bold;
+        }
+
+        input[type="text"],
+        input[type="password"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus,
+        input[type="password"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-bottom: 15px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            margin-top: 10px;
+        }
+
+        .btn-secondary:hover {
+            box-shadow: 0 5px 15px rgba(108, 117, 125, 0.4);
+        }
+
+        .error {
+            color: #dc3545;
+            text-align: center;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+
+        .option-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin-bottom: 15px;
+        }
+
+        .back-btn {
+            background: #6c757d;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Login Page -->
+    <div class="container">
+        <div id="loginPage" class="page active">
+            <h1>Login</h1>
+            <div id="loginError" class="error" style="display: none;"></div>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" name="username" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+                <button type="submit" class="btn">Login</button>
+            </form>
+        </div>
+
+        <!-- Main Page -->
+        <div id="mainPage" class="page">
+            <h2>Configuration</h2>
+            <button class="btn option-btn" onclick="showOption('wifi')">Set Wifi</button>
+            <button class="btn option-btn" onclick="showOption('name')">Change Name</button>
+            <button class="btn option-btn" onclick="showOption('ip')">Set IP of Master Device</button>
+            <button class="btn back-btn" onclick="logout()">Logout</button>
+        </div>
+
+        <!-- Set Wifi Page -->
+        <div id="wifiPage" class="page">
+            <h2>Set Wifi</h2>
+            <form id="wifiForm">
+                <div class="form-group">
+                    <label for="ssid">SSID</label>
+                    <input type="text" id="ssid" name="ssid" required>
+                </div>
+                <div class="form-group">
+                    <label for="wifiPassword">Password</label>
+                    <input type="password" id="wifiPassword" name="wifiPassword" required>
+                </div>
+                <button type="submit" class="btn">Save</button>
+                <button type="button" class="btn btn-secondary" onclick="showMainPage()">Cancel</button>
+            </form>
+        </div>
+
+        <!-- Change Name Page -->
+        <div id="namePage" class="page">
+            <h2>Change Name</h2>
+            <form id="nameForm">
+                <div class="form-group">
+                    <label for="deviceName">Device Name</label>
+                    <input type="text" id="deviceName" name="deviceName" required>
+                </div>
+                <button type="submit" class="btn">Save</button>
+                <button type="button" class="btn btn-secondary" onclick="showMainPage()">Cancel</button>
+            </form>
+        </div>
+
+        <!-- Set IP Page -->
+        <div id="ipPage" class="page">
+            <h2>Set IP of Master Device</h2>
+            <form id="ipForm">
+                <div class="form-group">
+                    <label for="masterIP">Master Device IP</label>
+                    <input type="text" id="masterIP" name="masterIP" placeholder="192.168.1.100" required>
+                </div>
+                <button type="submit" class="btn">Save</button>
+                <button type="button" class="btn btn-secondary" onclick="showMainPage()">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Default login credentials
+        const DEFAULT_USERNAME = "admin";
+        const DEFAULT_PASSWORD = "admin";
+
+        // Check if user is already logged in
+        if (sessionStorage.getItem('loggedIn') === 'true') {
+            showMainPage();
+        }
+
+        // Login form handler
+        document.getElementById('loginForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('loginError');
+
+            if (username === DEFAULT_USERNAME && password === DEFAULT_PASSWORD) {
+                sessionStorage.setItem('loggedIn', 'true');
+                errorDiv.style.display = 'none';
+                showMainPage();
+            } else {
+                errorDiv.textContent = 'Invalid username or password';
+                errorDiv.style.display = 'block';
+            }
+        });
+
+        // Show main page
+        function showMainPage() {
+            document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+            document.getElementById('mainPage').classList.add('active');
+        }
+
+        // Show option page
+        function showOption(option) {
+            document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+            document.getElementById(option + 'Page').classList.add('active');
+        }
+
+        // Logout
+        function logout() {
+            sessionStorage.removeItem('loggedIn');
+            document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+            document.getElementById('loginPage').classList.add('active');
+            document.getElementById('loginForm').reset();
+        }
+
+        // Form handlers for option pages
+        document.getElementById('wifiForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const ssid = document.getElementById('ssid').value;
+            const password = document.getElementById('wifiPassword').value;
+            alert('Wifi settings saved:\nSSID: ' + ssid + '\nPassword: ' + password);
+            // Here you would send this data to your ESP32
+            showMainPage();
+        });
+
+        document.getElementById('nameForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const deviceName = document.getElementById('deviceName').value;
+            alert('Device name saved: ' + deviceName);
+            // Here you would send this data to your ESP32
+            showMainPage();
+        });
+
+        document.getElementById('ipForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const masterIP = document.getElementById('masterIP').value;
+            alert('Master IP saved: ' + masterIP);
+            // Here you would send this data to your ESP32
+            showMainPage();
+        });
+    </script>
+</body>
+</html>
+

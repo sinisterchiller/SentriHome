@@ -1,0 +1,15 @@
+{
+  "C_Cpp.intelliSenseEngine": "default",
+  "idf.espIdfPath": "/Users/anuragkoushik/Desktop/Deployment/HomeSecurity-local/v4.4.6/esp-idf",
+  "idf.pythonInstallPath": "/usr/local/bin/python3",
+  "idf.openOcdConfigs": [
+    "interface/ftdi/esp32_devkitj_v1.cfg",
+    "target/esp32s3.cfg"
+  ],
+  "idf.port": "/dev/tty.usbmodem5A4E1321371",
+  "idf.toolsPath": "/Users/anuragkoushik/.espressif",
+  "idf.customExtraVars": {
+    "IDF_TARGET": "esp32s3"
+  },
+  "idf.flashType": "UART"
+}
