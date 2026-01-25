@@ -13,5 +13,6 @@ test.mp4
 *.jpg
 *.ts
 *.m3u8
+.DS_Store
 
 
