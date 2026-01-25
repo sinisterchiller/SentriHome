@@ -4,10 +4,14 @@ void littlefsinit(){
     if (!LittleFS.begin(true)) {   
     Serial.println("LittleFS mount failed");
     return;
-  }
-  Serial.println("LittleFS mounted");
-  littlefsWriteFile("wifissid.txt", "generic");
-  littlefsWriteFile("wifipass.txt", "generic");
+    }
+    Serial.println("LittleFS mounted");
+    if (!LittleFS.exists("/wifissid.txt")){
+        littlefsWriteFile("/wifissid.txt", "generic");
+    }
+    if (!LittleFS.exists("/wifipass.txt")){
+        littlefsWriteFile("/wifipass.txt", "generic");
+    }    
 }
 
 void littlefsWriteFile(String filename, String content){

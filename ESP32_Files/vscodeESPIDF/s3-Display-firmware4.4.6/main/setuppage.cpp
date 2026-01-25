@@ -695,16 +695,16 @@ void setuppage_init() {
     WiFi.mode(WIFI_AP);
   }
   
-  if (SPIFFS.exists("/wificreds.json")) {
-    File file = SPIFFS.open("/wificreds.json", "r");
-    if (file) {
-      StaticJsonDocument<256> doc;
-      DeserializationError error = deserializeJson(doc, file);
-      wifiSSID = doc["ssid"].as<String>();
-      wifiPASS = doc["password"].as<String>(); 
-      file.close();
-    }
-  }
+  // if (SPIFFS.exists("/wificreds.json")) {
+  //   File file = SPIFFS.open("/wificreds.json", "r");
+  //   if (file) {
+  //     StaticJsonDocument<256> doc;
+  //     DeserializationError error = deserializeJson(doc, file);
+  //     wifiSSID = doc["ssid"].as<String>();
+  //     wifiPASS = doc["password"].as<String>(); 
+  //     file.close();
+  //   }
+  // }
 
   IPAddress apIP(192,168,10,1);
   IPAddress gateway(192,168,10,1);

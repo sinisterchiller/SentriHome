@@ -14,7 +14,8 @@ const char* ssid = "ESP32_Master_Config";
 const char* password = "12345678";
 
 const char* DEVICE_NAME = "ESP_MOTION";   // <-- change to ESP_B on the other board
-const char* targetIP   = "192.168.10.1"; // <-- put the OTHER ESP's IP here
+String ipgiven = WiFi.localIP().toString();
+const char* targetIP   = ipgiven.c_str(); // <-- put the OTHER ESP's IP here
 const int   udpPort    = 5005;
 
 WiFiUDP udp;
@@ -146,10 +147,10 @@ void loop() {
       while(count < 2){
         Serial.printf("FUCK U FUCK U FUCK U\n");
         if (count == 0){
-          const char* targetIP   = "192.168.1.68"; //to safirs mac
+          const char* targetIP   = "192.168.1.69"; //to safirs mac
           const int   udpPort    = 5005;
           udp.beginPacket(targetIP, udpPort);
-          udp.printf("INTRUDER INTRUDER \n");
+          udp.printf("INTRUDER INTRUDER");
           udp.endPacket();
           delay(10);
         }
@@ -157,7 +158,7 @@ void loop() {
           const char* targetIP   = "192.168.10.1"; //to esp32 s3
           const int   udpPort    = 5005;
           udp.beginPacket(targetIP, udpPort);
-          udp.printf("INTRUDER INTRUDER \n");
+          udp.printf("INTRUDER INTRUDER");
           udp.endPacket();
           delay(10);
         }
@@ -171,14 +172,14 @@ void loop() {
   if (strcmp(buf, "turnonmotiondetectorespmotion") == 0) {
     motiononflag = 1;
     Serial.println("Motion detector turned ON");
-    udp.beginPacket(targetIP, udpPort);
+    udp.beginPacket("192.168.10.1", udpPort);
     udp.printf("MOTION DETECTOR ON\n");
     udp.endPacket();
   }
   else if (strcmp(buf, "turnoffmotiondetectorespmotion") == 0) {
     motiononflag = 0;
     Serial.println("Motion detector turned OFF");
-    udp.beginPacket(targetIP, udpPort);
+    udp.beginPacket("192.168.10.1", udpPort);
     udp.printf("MOTION DETECTOR OFF\n");
     udp.endPacket();
   }
