@@ -6,14 +6,16 @@
 #include "filesys.h"
 #include "display.h"
 #include <WiFiUdp.h>
+#include "esp_wifi.h"
 
 
 extern WebServer server;
 void wifiInit(void);
 void wifiupdate(void);
+extern WiFiUDP udp;
 void setuppageweb(void);
 void wifi_send(const char* message);
-extern int wifi_receive(void);
+void wifi_receive(void);
 
 
 #endif 

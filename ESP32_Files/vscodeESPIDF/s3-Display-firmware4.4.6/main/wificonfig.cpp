@@ -80,18 +80,30 @@ void wifi_send(const char* message) {
   }
 }
 
-int wifi_receive(void) {
+void wifi_receive(void) {
+  static char buf[128];   // static avoids stack churn (nice on ESP32)
+
   int packetSize = udp.parsePacket();
-  if (packetSize <= 0) return 0;
+  if (packetSize <= 0) return;
 
-  int len = udp.read(wifiReceiveBuffer, sizeof(wifiReceiveBuffer) - 1);
-  if (len <= 0) return 0;                 // guards -1/0
+  int len = udp.read(buf, sizeof(buf) - 1);
+  if (len <= 0) return;
 
-  wifiReceiveBuffer[len] = '\0';
+  buf[len] = '\0';
+
   Serial.print("Received: ");
-  Serial.println(wifiReceiveBuffer);
-  return len;
+  Serial.println(buf);
+
+  // Robust command match (ignores trailing junk)
+  if (strncmp(buf, "INTRUDER INTRUDER", 16) == 0) {
+
+    udp.beginPacket("192.168.1.74", 5005);
+    udp.print("INTRUDER INTRUDER\n");
+    udp.endPacket();
+  }
 }
+
+
 
 
 
