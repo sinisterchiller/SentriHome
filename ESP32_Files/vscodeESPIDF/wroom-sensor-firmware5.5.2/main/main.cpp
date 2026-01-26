@@ -169,14 +169,14 @@ void loop() {
   /////////////////////////////TURN ON MOTION DETECTOR////////////////////////////////////////////
   
   /////////////////////////////mode select////////////////////////////////////////////
-  if (strcmp(buf, "turnonmotiondetectorespmotion") == 0) {
+  if (strncmp(buf, "turnonmotiondetectorespmotion", strlen("turnonmotiondetectorespmotion")) == 0) {
     motiononflag = 1;
     Serial.println("Motion detector turned ON");
     udp.beginPacket("192.168.10.1", udpPort);
     udp.printf("MOTION DETECTOR ON\n");
     udp.endPacket();
   }
-  else if (strcmp(buf, "turnoffmotiondetectorespmotion") == 0) {
+  else if (strncmp(buf, "turnoffmotiondetectorespmotion", strlen("turnoffmotiondetectorespmotion")) == 0) {
     motiononflag = 0;
     Serial.println("Motion detector turned OFF");
     udp.beginPacket("192.168.10.1", udpPort);
