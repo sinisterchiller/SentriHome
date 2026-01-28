@@ -1,0 +1,3 @@
+[submodule "Mobile App"]
+	path = Mobile App
+	url = https://github.com/NeazMZ06/ESP32_Sensor_Manager.git
