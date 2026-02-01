@@ -98,6 +98,7 @@ class MainActivity : ComponentActivity() {
 fun WifiConnectTestScreen(connector: WifiConnector) {
     var status by remember { mutableStateOf("Idle") }
     var network by remember { mutableStateOf<android.net.Network?>(null) }
+    var showWifiDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val networkBinder = remember { NetworkBinder() }
     val httpClient = remember { com.example.esp32pairingapp.network.EspHttpClient() }
@@ -172,6 +173,18 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("2. Test HTTP (/api/health)")
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        Button(
+            onClick = {
+                showWifiDialog = true
+            },
+            enabled = network != null,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("3. Set WiFi Creds")
         }
 
         Spacer(Modifier.height(8.dp))

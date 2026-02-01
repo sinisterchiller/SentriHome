@@ -35,7 +35,7 @@ class EspHttpClient {
             connection.readTimeout = 10_000
             
             val responseCode = connection.responseCode
-            if (responseCode == HttpURLConnection.HTTP_OK) {
+            if (responseCode in 200..299) {
                 BufferedReader(InputStreamReader(connection.inputStream)).use { reader ->
                     reader.readText()
                 }
@@ -78,7 +78,7 @@ class EspHttpClient {
             }
             
             val responseCode = connection.responseCode
-            if (responseCode == HttpURLConnection.HTTP_OK) {
+            if (responseCode in 200..299) {
                 BufferedReader(InputStreamReader(connection.inputStream)).use { reader ->
                     reader.readText()
                 }
