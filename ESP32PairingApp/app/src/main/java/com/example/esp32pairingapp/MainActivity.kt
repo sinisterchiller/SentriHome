@@ -58,15 +58,15 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             ESP32PairingAppTheme {
-                /**PermissionScreen(
+                PermissionScreen(
                     hasPermission = hasLocationPermission,
                     onRequestPermission = { requestRequiredPermissions() }
-                )**/
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                )
+                /**if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     WifiConnectTestScreen(connector = WifiConnector(this))
                 } else {
                     Text("Android 10+ required for this test screen.")
-                }
+                }**/
             }
         }
     }
@@ -88,7 +88,7 @@ class MainActivity : ComponentActivity() {
 
 }
 
-@RequiresApi(Build.VERSION_CODES.Q)
+/**@RequiresApi(Build.VERSION_CODES.Q)
 @Composable
 fun WifiConnectTestScreen(connector: WifiConnector) {
     var status by remember { mutableStateOf("Idle") }
@@ -125,7 +125,7 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
             Text("Disconnect")
         }
     }
-}
+}**/
 
 @Composable
 fun PermissionScreen(
