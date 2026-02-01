@@ -233,6 +233,104 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
             }
         }
     }
+    
+    // WiFi credentials dialog
+    if (showWifiDialog) {
+        WifiCredentialsDialog(
+            onDismiss = { showWifiDialog = false },
+            onSubmit = { ssid, password ->
+                scope.launch {
+                    status = "Sending WiFi credentials..."
+                    val testNetwork = network
+                    if (testNetwork == null) {
+                        status = "Error: Not connected to ESP32"
+                        showWifiDialog = false
+                        return@launch
+                    }
+                    
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                            // Send SSID
+                            val ssidBody = "SSID=$ssid"
+                            val ssidResponse = httpClient.post(
+                                "http://192.168.10.1/api/newssid",
+                                ssidBody,
+                                "text/plain",
+                                testNetwork
+                            )
+                            
+                            // Send password
+                            val passBody = "pass=$password"
+                            val passResponse = httpClient.post(
+                                "http://192.168.10.1/api/newpass",
+                                passBody,
+                                "text/plain",
+                                testNetwork
+                            )
+                            
+                            status = "WiFi credentials sent successfully ✅"
+                        } else {
+                            status = "WiFi setup requires Android 5.0+"
+                        }
+                    } catch (e: Exception) {
+                        status = "Failed to send credentials ❌: ${e.message}"
+                    }
+                    
+                    showWifiDialog = false
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun WifiCredentialsDialog(
+    onDismiss: () -> Unit,
+    onSubmit: (String, String) -> Unit
+) {
+    var ssid by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Enter WiFi Credentials") },
+        text = {
+            Column {
+                TextField(
+                    value = ssid,
+                    onValueChange = { ssid = it },
+                    label = { Text("SSID") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                TextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Password") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { 
+                    if (ssid.isNotBlank() && password.isNotBlank()) {
+                        onSubmit(ssid, password)
+                    }
+                },
+                enabled = ssid.isNotBlank() && password.isNotBlank()
+            ) {
+                Text("Submit")
+            }
+        },
+        dismissButton = {
+            Button(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 @Composable
