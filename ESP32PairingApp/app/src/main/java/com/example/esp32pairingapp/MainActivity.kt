@@ -35,6 +35,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.net.Network
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
 
 class MainActivity : ComponentActivity() {
@@ -240,7 +242,7 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
             onDismiss = { showWifiDialog = false },
             onSubmit = { ssid, password ->
                 scope.launch {
-                    status = "Sending WiFi credentials..."
+                    status = "Sending WiFi credentials...\nSSID: '$ssid'\nPass: '${password.take(3)}...'"
                     val testNetwork = network
                     if (testNetwork == null) {
                         status = "Error: Not connected to ESP32"
@@ -250,29 +252,38 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
                     
                     try {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                            // URL encode the values
+                            val encodedSsid = URLEncoder.encode(ssid, "UTF-8")
+                            val encodedPassword = URLEncoder.encode(password, "UTF-8")
+                            
                             // Send SSID to /api/newssid
-                            val ssidBody = "SSID=$ssid"
+                            val ssidBody = "SSID=$encodedSsid"
+                            Log.d("WifiSetup", "Sending SSID: $ssidBody")
                             val ssidResponse = httpClient.post(
                                 "http://192.168.10.1/api/newssid",
                                 ssidBody,
                                 "application/x-www-form-urlencoded",
                                 testNetwork
                             )
+                            Log.d("WifiSetup", "SSID response: $ssidResponse")
                             
                             // Send password to /api/newpass
-                            val passBody = "pass=$password"
+                            val passBody = "pass=$encodedPassword"
+                            Log.d("WifiSetup", "Sending password: pass=***")
                             val passResponse = httpClient.post(
                                 "http://192.168.10.1/api/newpass",
                                 passBody,
                                 "application/x-www-form-urlencoded",
                                 testNetwork
                             )
+                            Log.d("WifiSetup", "Password response: $passResponse")
                             
-                            status = "WiFi credentials sent successfully ✅\nSSID: ${ssidResponse.take(30)}\nPass: ${passResponse.take(30)}"
+                            status = "WiFi credentials sent successfully ✅\nSSID response: ${ssidResponse.take(30)}\nPass response: ${passResponse.take(30)}"
                         } else {
                             status = "WiFi setup requires Android 5.0+"
                         }
                     } catch (e: Exception) {
+                        Log.e("WifiSetup", "Failed to send credentials", e)
                         status = "Failed to send credentials ❌: ${e.message}"
                     }
                     
