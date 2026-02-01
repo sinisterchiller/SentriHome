@@ -6,4 +6,5 @@ idf_component_register(SRCS
                         "displaySetupPage.cpp"
                         "filesys.cpp"
                         "wificonfig.cpp"
+                        "api.cpp"
                     INCLUDE_DIRS ".")
