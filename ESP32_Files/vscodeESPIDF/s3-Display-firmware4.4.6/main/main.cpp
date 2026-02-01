@@ -8,6 +8,7 @@ void setup() {
   littlefsinit();
   wifiInit();
   displayinit();
+  apihandle();
 }
 
 void loop() {
