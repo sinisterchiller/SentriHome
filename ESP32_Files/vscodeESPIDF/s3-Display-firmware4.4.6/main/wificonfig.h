@@ -17,5 +17,9 @@ void setuppageweb(void);
 void wifi_send(const char* message);
 void wifi_receive(void);
 
+void apihandle(void);
+extern String wifissid;
+extern String wifipassword;
+
 
 #endif 
