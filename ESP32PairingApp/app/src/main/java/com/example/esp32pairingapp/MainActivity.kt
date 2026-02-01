@@ -36,7 +36,9 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.net.Network
 import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
+import org.json.JSONObject
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 
 class MainActivity : ComponentActivity() {
@@ -94,6 +96,10 @@ class MainActivity : ComponentActivity() {
     }
 
 }
+
+private const val WIFISTATUS_URL = "http://192.168.10.1/api/wifistatus"
+private const val POLL_INTERVAL_MS = 750L
+private const val POLL_TIMEOUT_MS = 60_000L  // Stop after 60 seconds
 
 @RequiresApi(Build.VERSION_CODES.Q)
 @Composable
@@ -278,20 +284,69 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
                             )
                             Log.d("WifiSetup", "Password response: $passResponse")
                             
-                            status = "WiFi credentials sent successfully ✅\nSSID response: ${ssidResponse.take(30)}\nPass response: ${passResponse.take(30)}"
+                            status = "Credentials sent ✅\nPolling for WiFi connection..."
+                            showWifiDialog = false
+                            
+                            // Poll /api/wifistatus every 750ms until ESP confirms home WiFi connection
+                            pollWifiStatus(testNetwork, httpClient, scope) { isConnected, pollStatus ->
+                                status = pollStatus
+                                if (isConnected) {
+                                    status = "ESP32 connected to home WiFi ✅\nSetup complete!"
+                                }
+                            }
                         } else {
                             status = "WiFi setup requires Android 5.0+"
+                            showWifiDialog = false
                         }
                     } catch (e: Exception) {
                         Log.e("WifiSetup", "Failed to send credentials", e)
                         status = "Failed to send credentials ❌: ${e.message}"
+                        showWifiDialog = false
                     }
-                    
-                    showWifiDialog = false
                 }
             }
         )
     }
+}
+
+/**
+ * Polls /api/wifistatus every 500-1000ms until ESP32 returns {"connected": "true"}.
+ * Stops on success, timeout (60s), or when the coroutine is cancelled.
+ */
+private suspend fun pollWifiStatus(
+    network: android.net.Network,
+    httpClient: com.example.esp32pairingapp.network.EspHttpClient,
+    scope: kotlinx.coroutines.CoroutineScope,
+    onStatus: (isConnected: Boolean, status: String) -> Unit
+) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return
+    
+    val startTime = System.currentTimeMillis()
+    var pollCount = 0
+    
+    while (isActive && (System.currentTimeMillis() - startTime) < POLL_TIMEOUT_MS) {
+        pollCount++
+        try {
+            val response = httpClient.get(WIFISTATUS_URL, network)
+            val json = JSONObject(response)
+            val connected = json.optString("connected", "").lowercase() == "true"
+            
+            if (connected) {
+                Log.d("WifiSetup", "ESP32 confirmed home WiFi connection")
+                onStatus(true, "ESP32 connected to home WiFi ✅")
+                return
+            }
+            
+            onStatus(false, "Waiting for ESP to connect... (poll #$pollCount)")
+        } catch (e: Exception) {
+            Log.d("WifiSetup", "Poll #$pollCount failed: ${e.message}")
+            onStatus(false, "Waiting for ESP... (poll #$pollCount, retrying)")
+        }
+        
+        delay(POLL_INTERVAL_MS)
+    }
+    
+    onStatus(false, "Timeout: ESP32 did not confirm WiFi connection within ${POLL_TIMEOUT_MS / 1000}s")
 }
 
 @Composable
