@@ -158,7 +158,7 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
                     
                     try {
                         val response = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                            httpClient.get("http://192.168.10.1/", testNetwork)
+                            httpClient.get("http://192.168.10.1/api/health", testNetwork)
                         } else {
                             "HTTP test requires Android 5.0+"
                         }
@@ -171,7 +171,7 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
             enabled = network != null,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("2. Test HTTP (192.168.10.1)")
+            Text("2. Test HTTP (/api/health)")
         }
 
         Spacer(Modifier.height(8.dp))
