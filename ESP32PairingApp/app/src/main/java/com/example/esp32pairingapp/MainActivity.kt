@@ -250,25 +250,17 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
                     
                     try {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                            // Send SSID
-                            val ssidBody = "SSID=$ssid"
-                            val ssidResponse = httpClient.post(
-                                "http://192.168.10.1/api/newssid",
-                                ssidBody,
-                                "text/plain",
+                            // Send both credentials to /save-wifi endpoint
+                            // ESP32 expects: ssid and wifiPassword as form data
+                            val formBody = "ssid=$ssid&wifiPassword=$password"
+                            val response = httpClient.post(
+                                "http://192.168.10.1/save-wifi",
+                                formBody,
+                                "application/x-www-form-urlencoded",
                                 testNetwork
                             )
                             
-                            // Send password
-                            val passBody = "pass=$password"
-                            val passResponse = httpClient.post(
-                                "http://192.168.10.1/api/newpass",
-                                passBody,
-                                "text/plain",
-                                testNetwork
-                            )
-                            
-                            status = "WiFi credentials sent successfully ✅"
+                            status = "WiFi credentials sent successfully ✅\nESP32 response: ${response.take(50)}"
                         } else {
                             status = "WiFi setup requires Android 5.0+"
                         }
