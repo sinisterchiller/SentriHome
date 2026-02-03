@@ -35,6 +35,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.net.Network
+import kotlinx.coroutines.NonCancellable.isActive
 import java.net.URLEncoder
 import org.json.JSONObject
 import kotlinx.coroutines.delay
@@ -286,7 +287,10 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
                             
                             status = "Credentials sent ✅\nPolling for WiFi connection..."
                             showWifiDialog = false
-                            
+
+                            // Give ESP32 a moment to apply credentials before polling
+                            delay(1_000L)
+
                             // Poll /api/wifistatus every 750ms until ESP confirms home WiFi connection
                             pollWifiStatus(testNetwork, httpClient, scope) { isConnected, pollStatus ->
                                 status = pollStatus
