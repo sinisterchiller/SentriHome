@@ -6,10 +6,10 @@ void littlefsinit(){
     return;
     }
     Serial.println("LittleFS mounted");
-    if (!LittleFS.exists("/wifissid.txt")){
+    if (LittleFS.exists("/wifissid.txt")){
         littlefsWriteFile("/wifissid.txt", "generic");
     }
-    if (!LittleFS.exists("/wifipass.txt")){
+    if (LittleFS.exists("/wifipass.txt")){
         littlefsWriteFile("/wifipass.txt", "generic");
     }    
 }
