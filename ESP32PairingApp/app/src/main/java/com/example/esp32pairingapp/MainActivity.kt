@@ -69,8 +69,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             ESP32PairingAppTheme {
                 /**PermissionScreen(
-                    hasPermission = hasLocationPermission,
-                    onRequestPermission = { requestRequiredPermissions() }
+                hasPermission = hasLocationPermission,
+                onRequestPermission = { requestRequiredPermissions() }
                 )**/
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     WifiConnectTestScreen(connector = WifiConnector(this))
@@ -108,9 +108,19 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
     var status by remember { mutableStateOf("Idle") }
     var network by remember { mutableStateOf<android.net.Network?>(null) }
     var showWifiDialog by remember { mutableStateOf(false) }
+    var showStreamPage by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val networkBinder = remember { NetworkBinder() }
     val httpClient = remember { com.example.esp32pairingapp.network.EspHttpClient() }
+
+    if (showStreamPage) {
+        StreamPage(
+            network = network,
+            httpClient = httpClient,
+            onBack = { showStreamPage = false }
+        )
+        return
+    }
 
     Column(
         modifier = Modifier
@@ -131,7 +141,7 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
                             timeoutMs = 30_000L
                         )
                         network = connectedNetwork
-                        
+
                         // Bind app traffic to this network
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                             val bound = networkBinder.bindProcessToNetwork(connectedNetwork)
@@ -165,7 +175,7 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
                         status = "Error: Not connected to ESP32"
                         return@launch
                     }
-                    
+
                     try {
                         val response = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                             httpClient.get("http://192.168.10.1/api/health", testNetwork)
@@ -200,6 +210,18 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
 
         Button(
             onClick = {
+                showStreamPage = true
+            },
+            enabled = network != null,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("4. View Stream & Clips")
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        Button(
+            onClick = {
                 // Unbind network first
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     networkBinder.unbindProcessFromNetwork()
@@ -215,9 +237,9 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
         ) {
             Text("Disconnect")
         }
-        
+
         Spacer(Modifier.height(24.dp))
-        
+
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(
@@ -242,7 +264,7 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
             }
         }
     }
-    
+
     // WiFi credentials dialog
     if (showWifiDialog) {
         WifiCredentialsDialog(
@@ -256,13 +278,13 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
                         showWifiDialog = false
                         return@launch
                     }
-                    
+
                     try {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                             // URL encode the values
                             val encodedSsid = URLEncoder.encode(ssid, "UTF-8")
                             val encodedPassword = URLEncoder.encode(password, "UTF-8")
-                            
+
                             // Send SSID to /api/newssid
                             val ssidBody = "SSID=$encodedSsid"
                             Log.d("WifiSetup", "Sending SSID: $ssidBody")
@@ -273,7 +295,7 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
                                 testNetwork
                             )
                             Log.d("WifiSetup", "SSID response: $ssidResponse")
-                            
+
                             // Send password to /api/newpass
                             val passBody = "pass=$encodedPassword"
                             Log.d("WifiSetup", "Sending password: pass=***")
@@ -284,7 +306,7 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
                                 testNetwork
                             )
                             Log.d("WifiSetup", "Password response: $passResponse")
-                            
+
                             status = "Credentials sent ✅\nPolling for WiFi connection..."
                             showWifiDialog = false
 
@@ -313,6 +335,163 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
     }
 }
 
+@RequiresApi(Build.VERSION_CODES.LOLLIPOP)
+@Composable
+fun StreamPage(
+    network: Network?,
+    httpClient: com.example.esp32pairingapp.network.EspHttpClient,
+    onBack: () -> Unit
+) {
+    var isLoadingStream by remember { mutableStateOf(false) }
+    var isLoadingClips by remember { mutableStateOf(false) }
+    var streamUrl by remember { mutableStateOf<String?>(null) }
+    var clips by remember { mutableStateOf<List<String>>(emptyList()) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        // Header with back button
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Button(onClick = onBack) {
+                Text("← Back")
+            }
+            Text("Stream & Clips", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.width(80.dp)) // Balance the layout
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // Live Stream Section
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            )
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Live Stream", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+
+                Button(
+                    onClick = {
+                        scope.launch {
+                            isLoadingStream = true
+                            errorMessage = null
+                            try {
+                                if (network != null) {
+                                    // Get stream URL from backend
+                                    val response = httpClient.get("http://192.168.10.1/api/stream", network)
+                                    streamUrl = "http://192.168.10.1/stream" // Adjust based on actual endpoint
+                                } else {
+                                    errorMessage = "Not connected to ESP32"
+                                }
+                            } catch (e: Exception) {
+                                errorMessage = "Failed to get stream: ${e.message}"
+                                Log.e("StreamPage", "Stream error", e)
+                            } finally {
+                                isLoadingStream = false
+                            }
+                        }
+                    },
+                    enabled = !isLoadingStream && network != null,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (isLoadingStream) "Loading..." else "Start Live Stream")
+                }
+
+                if (streamUrl != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("Stream URL: $streamUrl", style = MaterialTheme.typography.bodySmall)
+                    // You can add an image viewer here for the stream
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // Clips Section
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer
+            )
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Recorded Clips", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+
+                Button(
+                    onClick = {
+                        scope.launch {
+                            isLoadingClips = true
+                            errorMessage = null
+                            try {
+                                if (network != null) {
+                                    // Get clips list from backend
+                                    val response = httpClient.get("http://192.168.10.1/api/clips", network)
+                                    // Parse the response to get clip URLs
+                                    val json = JSONObject(response)
+                                    val clipsArray = json.optJSONArray("clips")
+                                    clips = if (clipsArray != null) {
+                                        (0 until clipsArray.length()).map { clipsArray.getString(it) }
+                                    } else {
+                                        emptyList()
+                                    }
+                                } else {
+                                    errorMessage = "Not connected to ESP32"
+                                }
+                            } catch (e: Exception) {
+                                errorMessage = "Failed to get clips: ${e.message}"
+                                Log.e("StreamPage", "Clips error", e)
+                            } finally {
+                                isLoadingClips = false
+                            }
+                        }
+                    },
+                    enabled = !isLoadingClips && network != null,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (isLoadingClips) "Loading..." else "Load Clips")
+                }
+
+                if (clips.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("Found ${clips.size} clips:", style = MaterialTheme.typography.bodyMedium)
+                    clips.forEach { clip ->
+                        Text("• $clip", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
+
+        // Error message display
+        if (errorMessage != null) {
+            Spacer(Modifier.height(16.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer
+                )
+            ) {
+                Text(
+                    text = errorMessage!!,
+                    modifier = Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
+        }
+    }
+}
+
 /**
  * Polls /api/wifistatus every 500-1000ms until ESP32 returns {"connected": "true"}.
  * Stops on success, timeout (60s), or when the coroutine is cancelled.
@@ -324,32 +503,32 @@ private suspend fun pollWifiStatus(
     onStatus: (isConnected: Boolean, status: String) -> Unit
 ) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return
-    
+
     val startTime = System.currentTimeMillis()
     var pollCount = 0
-    
+
     while (isActive && (System.currentTimeMillis() - startTime) < POLL_TIMEOUT_MS) {
         pollCount++
         try {
             val response = httpClient.get(WIFISTATUS_URL, network)
             val json = JSONObject(response)
             val connected = json.optString("connected", "").lowercase() == "true"
-            
+
             if (connected) {
                 Log.d("WifiSetup", "ESP32 confirmed home WiFi connection")
                 onStatus(true, "ESP32 connected to home WiFi ✅")
                 return
             }
-            
+
             onStatus(false, "Waiting for ESP to connect... (poll #$pollCount)")
         } catch (e: Exception) {
             Log.d("WifiSetup", "Poll #$pollCount failed: ${e.message}")
             onStatus(false, "Waiting for ESP... (poll #$pollCount, retrying)")
         }
-        
+
         delay(POLL_INTERVAL_MS)
     }
-    
+
     onStatus(false, "Timeout: ESP32 did not confirm WiFi connection within ${POLL_TIMEOUT_MS / 1000}s")
 }
 
@@ -360,7 +539,7 @@ fun WifiCredentialsDialog(
 ) {
     var ssid by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Enter WiFi Credentials") },
@@ -385,7 +564,7 @@ fun WifiCredentialsDialog(
         },
         confirmButton = {
             Button(
-                onClick = { 
+                onClick = {
                     if (ssid.isNotBlank() && password.isNotBlank()) {
                         onSubmit(ssid, password)
                     }

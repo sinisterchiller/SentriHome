@@ -2,6 +2,7 @@ package com.example.esp32pairingapp.network
 
 import android.net.Network
 import android.os.Build
+import android.util.Log
 import androidx.annotation.RequiresApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -16,7 +17,7 @@ import java.net.URL
  * Required for accessing ESP32 web server at 192.168.10.1 through the ESP32 WiFi network.
  */
 class EspHttpClient {
-    
+
     /**
      * Make a GET request through the specified network.
      */
@@ -28,13 +29,15 @@ class EspHttpClient {
         } else {
             urlObj.openConnection() as HttpURLConnection
         }
-        
+
         try {
             connection.requestMethod = "GET"
             connection.connectTimeout = 10_000
             connection.readTimeout = 10_000
-            
+
             val responseCode = connection.responseCode
+            Log.d("EspHttpClient", "GET $url -> Response code: $responseCode")
+
             if (responseCode in 200..299) {
                 BufferedReader(InputStreamReader(connection.inputStream)).use { reader ->
                     reader.readText()
@@ -46,14 +49,14 @@ class EspHttpClient {
             connection.disconnect()
         }
     }
-    
+
     /**
      * Make a POST request through the specified network.
      */
     @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
     suspend fun post(
-        url: String, 
-        body: String, 
+        url: String,
+        body: String,
         contentType: String = "application/json",
         network: Network? = null
     ): String = withContext(Dispatchers.IO) {
@@ -63,27 +66,46 @@ class EspHttpClient {
         } else {
             urlObj.openConnection() as HttpURLConnection
         }
-        
+
         try {
             connection.requestMethod = "POST"
             connection.connectTimeout = 10_000
             connection.readTimeout = 10_000
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", contentType)
-            
+            connection.setRequestProperty("Content-Length", body.length.toString())
+
+            Log.d("EspHttpClient", "POST $url with body length: ${body.length}")
+
             // Write body
             OutputStreamWriter(connection.outputStream).use { writer ->
                 writer.write(body)
                 writer.flush()
             }
-            
+
             val responseCode = connection.responseCode
+            Log.d("EspHttpClient", "POST $url -> Response code: $responseCode")
+
             if (responseCode in 200..299) {
-                BufferedReader(InputStreamReader(connection.inputStream)).use { reader ->
-                    reader.readText()
+                try {
+                    BufferedReader(InputStreamReader(connection.inputStream)).use { reader ->
+                        reader.readText()
+                    }
+                } catch (e: Exception) {
+                    // Some ESP32 responses might not have a body, which is OK
+                    Log.d("EspHttpClient", "No response body (this is OK)")
+                    "OK"
                 }
             } else {
-                throw Exception("HTTP $responseCode: ${connection.responseMessage}")
+                // Try to read error response
+                val errorBody = try {
+                    BufferedReader(InputStreamReader(connection.errorStream)).use { reader ->
+                        reader.readText()
+                    }
+                } catch (e: Exception) {
+                    connection.responseMessage
+                }
+                throw Exception("HTTP $responseCode: $errorBody")
             }
         } finally {
             connection.disconnect()
