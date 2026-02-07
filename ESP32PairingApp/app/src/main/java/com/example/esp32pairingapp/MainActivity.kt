@@ -35,6 +35,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.net.Network
+import kotlinx.coroutines.NonCancellable.isActive
 import java.net.URLEncoder
 import org.json.JSONObject
 import kotlinx.coroutines.delay
