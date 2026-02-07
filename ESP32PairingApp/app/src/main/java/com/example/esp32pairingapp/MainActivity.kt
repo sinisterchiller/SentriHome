@@ -260,8 +260,12 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
                     try {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                             // URL encode the values
-                            val encodedSsid = URLEncoder.encode(ssid, "UTF-8")
-                            val encodedPassword = URLEncoder.encode(password, "UTF-8")
+                            val cleanedSsid = ssid.trim().replace(Regex("\\p{C}"), "")
+                            val cleanedPass = password.trim().replace(Regex("\\p{C}"), "")
+
+                            // URL encode AFTER cleaning
+                            val encodedSsid = URLEncoder.encode(cleanedSsid, "UTF-8")
+                            val encodedPassword = URLEncoder.encode(cleanedPass, "UTF-8")
                             
                             // Send SSID to /api/newssid
                             val ssidBody = "SSID=$encodedSsid"
