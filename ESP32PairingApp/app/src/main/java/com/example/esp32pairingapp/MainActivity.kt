@@ -1,48 +1,47 @@
 package com.example.esp32pairingapp
 
 import android.Manifest
-import android.content.ClipData
+import android.net.Network
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
-import com.example.esp32pairingapp.ui.theme.ESP32PairingAppTheme
-import android.util.Log
-import com.example.esp32pairingapp.pairing.PasswordGenerator
-import android.os.Build
-import androidx.annotation.RequiresApi
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
-import kotlinx.coroutines.launch
-import androidx.compose.runtime.Composable
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.rememberCoroutineScope
-import com.example.esp32pairingapp.wifi.WifiConnector
+import androidx.core.content.ContextCompat
 import com.example.esp32pairingapp.network.NetworkBinder
-import androidx.compose.ui.viewinterop.AndroidView
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import android.net.Network
-import kotlinx.coroutines.NonCancellable.isActive
-import java.net.URLEncoder
-import org.json.JSONObject
+import com.example.esp32pairingapp.ui.theme.ESP32PairingAppTheme
+import com.example.esp32pairingapp.wifi.WifiConnector
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import kotlin.collections.emptyList
-
+import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.URLEncoder
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import com.example.esp32pairingapp.network.CloudBackendPrefs
+import com.example.esp32pairingapp.network.PiBackendPrefs
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlin.collections.isNotEmpty
+import kotlin.collections.take
+import androidx.compose.ui.graphics.asImageBitmap
 
 class MainActivity : ComponentActivity() {
 
@@ -103,6 +102,11 @@ class MainActivity : ComponentActivity() {
 private const val POLL_INTERVAL_MS = 750L
 private const val POLL_TIMEOUT_MS = 60_000L  // Stop after 60 seconds
 
+// Fallback values in case BuildConfig fields aren't generated for this module/flavor.
+// (You can replace these with the real SSID/password, or re-enable BuildConfig fields in Gradle.)
+private const val ESP32_DEFAULT_SSID_FALLBACK = "ESP32"
+private const val ESP32_DEFAULT_PASSWORD_FALLBACK = "12345678"
+
 @RequiresApi(Build.VERSION_CODES.Q)
 @Composable
 fun WifiConnectTestScreen(connector: WifiConnector) {
@@ -137,8 +141,8 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
                     status = "Connecting to ESP32 WiFi..."
                     try {
                         val connectedNetwork = connector.connectAndroid10Plus(
-                            ssid = BuildConfig.ESP32_DEFAULT_SSID,
-                            password = BuildConfig.ESP32_DEFAULT_PASSWORD,
+                            ssid = ESP32_DEFAULT_SSID_FALLBACK,
+                            password = ESP32_DEFAULT_PASSWORD_FALLBACK,
                             timeoutMs = 30_000L
                         )
                         network = connectedNetwork
@@ -335,8 +339,69 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
     }
 }
 
-// Add this StreamPage replacement to MainActivity.kt
-// This version controls the Pi backend for streaming and fetches clips from Cloud backend
+// --- Thumbnail helpers (simple, no extra deps) ---
+private fun fetchBitmap(url: String): Bitmap? {
+    val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+        connectTimeout = 10_000
+        readTimeout = 10_000
+        instanceFollowRedirects = true
+    }
+
+    return try {
+        if (connection.responseCode in 200..299) {
+            connection.inputStream.use { BitmapFactory.decodeStream(it) }
+        } else {
+            null
+        }
+    } finally {
+        connection.disconnect()
+    }
+}
+
+@Composable
+private fun RemoteThumbnail(
+    url: String,
+    modifier: Modifier = Modifier,
+    contentDescription: String? = null
+) {
+    var bitmap by remember(url) { mutableStateOf<Bitmap?>(null) }
+    var failed by remember(url) { mutableStateOf(false) }
+
+    LaunchedEffect(url) {
+        failed = false
+        bitmap = null
+        bitmap = try {
+            fetchBitmap(url)
+        } catch (_: Exception) {
+            failed = true
+            null
+        }
+    }
+
+    when {
+        bitmap != null -> {
+            androidx.compose.foundation.Image(
+                bitmap = bitmap!!.asImageBitmap(),
+                contentDescription = contentDescription,
+                modifier = modifier
+            )
+        }
+        failed -> {
+            Surface(modifier = modifier, color = MaterialTheme.colorScheme.surfaceVariant) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                    Text("No thumbnail", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+        else -> {
+            Surface(modifier = modifier, color = MaterialTheme.colorScheme.surfaceVariant) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                    CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+                }
+            }
+        }
+    }
+}
 
 @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
 @Composable
@@ -351,17 +416,55 @@ fun StreamPage(
     var streamUrl by remember { mutableStateOf<String?>(null) }
     var clips by remember { mutableStateOf<List<VideoClip>>(emptyList()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
+    var piBackendStatus by remember { mutableStateOf<String?>(null) }
 
-    // Data class for clips
-    data class VideoClip(
-        val id: String,
-        val filename: String,
-        val timestamp: String,
-        val deviceId: String,
-        val thumbnailUrl: String?,
-        val videoUrl: String?
-    )
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    // Cloud and Pi backend config (persisted).
+    var showCloudDialog by remember { mutableStateOf(false) }
+    var showPiDialog by remember { mutableStateOf(false) }
+    var cloudHostInput by remember {
+        mutableStateOf(CloudBackendPrefs.getRawHostInput(context) ?: "")
+    }
+    var piHostInput by remember {
+        mutableStateOf(PiBackendPrefs.getRawHostInput(context) ?: "")
+    }
+
+    // Apply saved URLs when screen is shown.
+    LaunchedEffect(Unit) {
+        val cloudSaved = CloudBackendPrefs.getRawHostInput(context)
+        val piSaved = PiBackendPrefs.getRawHostInput(context)
+
+        if (!cloudSaved.isNullOrBlank()) {
+            runCatching {
+                val baseUrl = CloudBackendPrefs.computeCloudBaseUrl(cloudSaved)
+                com.example.esp32pairingapp.network.ApiConfig.setCloudBaseUrlOverride(baseUrl)
+            }
+        }
+        if (!piSaved.isNullOrBlank()) {
+            runCatching {
+                val baseUrl = PiBackendPrefs.computePiBaseUrl(piSaved)
+                com.example.esp32pairingapp.network.ApiConfig.setPiBaseUrlOverride(baseUrl)
+            }
+        }
+        // Show Pi dialog first if not configured, then Cloud
+        if (piSaved.isNullOrBlank()) showPiDialog = true
+        else if (cloudSaved.isNullOrBlank()) showCloudDialog = true
+
+        // Check Pi backend connectivity. Use null network so we reach Pi on LAN (not via ESP32).
+        scope.launch {
+            try {
+                val piUrl = com.example.esp32pairingapp.network.ApiConfig.getPiHealthUrl()
+                Log.d("StreamPage", "Checking Pi at: $piUrl")
+                httpClient.get(piUrl, null)
+                piBackendStatus = "✅ Pi backend reachable at $piUrl"
+            } catch (e: Exception) {
+                piBackendStatus = "❌ Pi NOT reachable: ${e.message}. Tap Edit Pi to set IP (port 4000)."
+                Log.e("StreamPage", "Pi check failed", e)
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -398,18 +501,46 @@ fun StreamPage(
                     text = if (network != null) "✅ Connected to ESP32 Network" else "📡 Using localhost backend",
                     style = MaterialTheme.typography.bodyMedium
                 )
-                Text(
-                    text = "Cloud: ${com.example.esp32pairingapp.network.ApiConfig.getCloudBaseUrl()}",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Text(
-                    text = "Pi: ${com.example.esp32pairingapp.network.ApiConfig.getPiBaseUrl()}",
-                    style = MaterialTheme.typography.bodySmall
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Cloud: ${com.example.esp32pairingapp.network.ApiConfig.getCloudBaseUrl()}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Text(
+                            text = "Pi: ${com.example.esp32pairingapp.network.ApiConfig.getPiBaseUrl()}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { showCloudDialog = true }) {
+                            Text("Edit Cloud")
+                        }
+                        Button(onClick = { showPiDialog = true }) {
+                            Text("Edit Pi")
+                        }
+                    }
+                }
             }
         }
 
         Spacer(Modifier.height(16.dp))
+
+        // Quick backend reachability indicator
+        if (piBackendStatus != null) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = piBackendStatus!!,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (piBackendStatus!!.startsWith("✅")) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.error
+            )
+        }
 
         // Live Stream Control Section
         Card(
@@ -433,12 +564,14 @@ fun StreamPage(
                                 isLoadingStream = true
                                 errorMessage = null
                                 try {
-                                    // POST to Pi backend to start stream
+                                    // POST to Pi backend (use null = default network to reach Pi on LAN)
+                                    val url = com.example.esp32pairingapp.network.ApiConfig.getStartStreamUrl()
+                                    Log.d("StreamPage", "Start stream POST to: $url")
                                     val response = httpClient.post(
-                                        com.example.esp32pairingapp.network.ApiConfig.getStartStreamUrl(),
+                                        url,
                                         """{"type":"webcam","value":""}""",
                                         "application/json",
-                                        network
+                                        null
                                     )
 
                                     Log.d("StreamPage", "Start response: $response")
@@ -474,12 +607,12 @@ fun StreamPage(
                                 isLoadingStream = true
                                 errorMessage = null
                                 try {
-                                    // POST to Pi backend to stop stream
+                                    // POST to Pi backend (use null = default network)
                                     val response = httpClient.post(
                                         com.example.esp32pairingapp.network.ApiConfig.getStopStreamUrl(),
                                         "",
                                         "application/json",
-                                        network
+                                        null
                                     )
 
                                     Log.d("StreamPage", "Stop response: $response")
@@ -513,17 +646,24 @@ fun StreamPage(
                         scope.launch {
                             isLoadingStream = true
                             errorMessage = null
-                            try {
-                                // POST to Pi backend to trigger motion
+                                try {
+                                // POST to Pi backend (use null = default network to reach Pi on LAN)
+                                val motionUrl = com.example.esp32pairingapp.network.ApiConfig.getMotionTriggerUrl()
+                                Log.d("StreamPage", "Motion POST to: $motionUrl")
                                 val response = httpClient.post(
-                                    com.example.esp32pairingapp.network.ApiConfig.getMotionTriggerUrl(),
+                                    motionUrl,
                                     "",
                                     "application/json",
-                                    network
+                                    null
                                 )
 
                                 Log.d("StreamPage", "Motion response: $response")
-                                errorMessage = "📸 Motion triggered! Clip will be saved to Google Drive"
+                                val msg = runCatching { JSONObject(response).optString("message", "") }.getOrNull() ?: ""
+                                if (msg.contains("cloud backend", ignoreCase = true)) {
+                                    errorMessage = "❌ Wrong backend! Motion hit Cloud (3001) not Pi (4000). Tap Edit Pi and set Pi IP (port 4000)."
+                                } else {
+                                    errorMessage = "📸 Motion triggered! Clip will be saved to Google Drive"
+                                }
 
                                 // Wait a bit then refresh clips
                                 delay(2000)
@@ -600,33 +740,53 @@ fun StreamPage(
                             isLoadingClips = true
                             errorMessage = null
                             try {
-                                // GET from Cloud backend to get clips
+                                // GET from Cloud backend: /api/events
+                                // Use null network so requests use default (home WiFi) to reach cloud
                                 val response = httpClient.get(
-                                    com.example.esp32pairingapp.network.ApiConfig.getClipsUrl(),
-                                    network
+                                    com.example.esp32pairingapp.network.ApiConfig.getEventsUrl(),
+                                    null
                                 )
 
-                                Log.d("StreamPage", "Clips response: $response")
+                                Log.d("StreamPage", "Events response: ${response.take(500)}")
 
-                                val json = JSONObject(response)
-                                val clipsArray = json.optJSONArray("clips") ?: JSONArray()
+                                // Cloud backend returns raw array [{...}]. Also support { events: [...] } or { clips: [...] }.
+                                val eventsArray: JSONArray = runCatching {
+                                    if (response.trimStart().startsWith("[")) {
+                                        JSONArray(response)
+                                    } else {
+                                        val json = JSONObject(response)
+                                        when {
+                                            json.has("events") -> json.optJSONArray("events") ?: JSONArray()
+                                            json.has("clips") -> json.optJSONArray("clips") ?: JSONArray()
+                                            else -> JSONArray()
+                                        }
+                                    }
+                                }.getOrElse {
+                                    Log.e("StreamPage", "Failed to parse events", it)
+                                    JSONArray()
+                                }
 
-                                clips = (0 until clipsArray.length()).map { i ->
-                                    val clipObj = clipsArray.getJSONObject(i)
+                                clips = (0 until eventsArray.length()).map { i ->
+                                    val eventObj = eventsArray.getJSONObject(i)
+                                    val id = eventObj.optString("_id", eventObj.optString("id", ""))
+                                    val filename = eventObj.optString("filename", "event_$i.mp4")
+                                    val timestamp = eventObj.optString("createdAt", eventObj.optString("timestamp", ""))
+                                    val deviceId = eventObj.optString("deviceId", "unknown")
+
                                     VideoClip(
-                                        id = clipObj.optString("_id", ""),
-                                        filename = clipObj.optString("filename", "clip_$i.mp4"),
-                                        timestamp = clipObj.optString("createdAt", ""),
-                                        deviceId = clipObj.optString("deviceId", "unknown"),
-                                        thumbnailUrl = clipObj.optJSONObject("thumbnail")?.optString("webViewLink"),
-                                        videoUrl = clipObj.optJSONObject("video")?.optString("webViewLink")
+                                        id = id,
+                                        filename = filename,
+                                        timestamp = timestamp,
+                                        deviceId = deviceId,
+                                        thumbnailUrl = if (id.isNotBlank()) com.example.esp32pairingapp.network.ApiConfig.getClipThumbnailUrl(id) else null,
+                                        videoUrl = if (id.isNotBlank()) com.example.esp32pairingapp.network.ApiConfig.getClipStreamUrl(id) else null
                                     )
                                 }
 
-                                errorMessage = "✅ Loaded ${clips.size} clips from Google Drive"
+                                errorMessage = "✅ Loaded ${clips.size} events"
                             } catch (e: Exception) {
-                                errorMessage = "❌ Failed to get clips: ${e.message}"
-                                Log.e("StreamPage", "Clips error", e)
+                                errorMessage = "❌ Failed to load events: ${e.message}"
+                                Log.e("StreamPage", "Events error", e)
                             } finally {
                                 isLoadingClips = false
                             }
@@ -639,41 +799,86 @@ fun StreamPage(
                 }
 
                 if (clips.isNotEmpty()) {
-                    Spacer(Modifier.height(8.dp))
-                    Text("Found ${clips.size} clips:", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(12.dp))
 
-                    clips.take(10).forEach { clip ->
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "• ${clip.filename}",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        Text(
-                            "  Device: ${clip.deviceId} | ${clip.timestamp.take(19)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
-                        )
-                        if (clip.videoUrl != null) {
-                            Text(
-                                "  📹 Drive: ${clip.videoUrl.take(50)}...",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
+                    clips.take(20).forEach { clip ->
+                        Spacer(Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val thumb = clip.thumbnailUrl
+                            if (thumb != null) {
+                                Surface(
+                                    shape = MaterialTheme.shapes.medium,
+                                    tonalElevation = 1.dp,
+                                    modifier = Modifier.size(width = 120.dp, height = 80.dp)
+                                ) {
+                                    RemoteThumbnail(
+                                        url = thumb,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentDescription = "Thumbnail for ${clip.filename}"
+                                    )
+                                }
+                            } else {
+                                Surface(
+                                    shape = MaterialTheme.shapes.medium,
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier.size(width = 120.dp, height = 80.dp)
+                                ) {}
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(clip.filename, style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    "Device: ${clip.deviceId}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                                )
+                                if (clip.timestamp.isNotBlank()) {
+                                    Text(
+                                        clip.timestamp.take(19),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                                    )
+                                }
+
+                                Spacer(Modifier.height(6.dp))
+
+                                Button(
+                                    onClick = {
+                                        val url = clip.videoUrl
+                                        if (url.isNullOrBlank()) {
+                                            errorMessage = "❌ No video URL for this event"
+                                            return@Button
+                                        }
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                        // Let Android pick the best player (Chrome, VLC, etc.)
+                                        context.startActivity(intent)
+                                    },
+                                    enabled = !clip.videoUrl.isNullOrBlank(),
+                                ) {
+                                    Text("▶️ Play")
+                                }
+                            }
                         }
                     }
 
-                    if (clips.size > 10) {
-                        Spacer(Modifier.height(4.dp))
+                    if (clips.size > 20) {
+                        Spacer(Modifier.height(8.dp))
                         Text(
-                            "... and ${clips.size - 10} more clips",
+                            "Showing 20 of ${clips.size}…",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.5f)
+                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.6f)
                         )
                     }
                 }
             }
         }
 
+        // Status/Error message display
         // Status/Error message display
         if (errorMessage != null) {
             Spacer(Modifier.height(16.dp))
@@ -696,46 +901,118 @@ fun StreamPage(
             }
         }
     }
-}
 
-/**
- * Polls /api/wifistatus every 500-1000ms until ESP32 returns {"connected": "true"}.
- * Stops on success, timeout (60s), or when the coroutine is cancelled.
- */
-private suspend fun pollWifiStatus(
-    network: android.net.Network,
-    httpClient: com.example.esp32pairingapp.network.EspHttpClient,
-    scope: kotlinx.coroutines.CoroutineScope,
-    onStatus: (isConnected: Boolean, status: String) -> Unit
-) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return
-
-    val startTime = System.currentTimeMillis()
-    var pollCount = 0
-
-    while (isActive && (System.currentTimeMillis() - startTime) < POLL_TIMEOUT_MS) {
-        pollCount++
-        try {
-            val response = httpClient.get(com.example.esp32pairingapp.network.ApiConfig.getWifiStatusUrl(), network)
-            val json = JSONObject(response)
-            val connected = json.optString("connected", "").lowercase() == "true"
-
-            if (connected) {
-                Log.d("WifiSetup", "ESP32 confirmed home WiFi connection")
-                onStatus(true, "ESP32 connected to home WiFi ✅")
-                return
+    // Cloud backend dialog (Edit Cloud)
+    if (showCloudDialog) {
+        AlertDialog(
+            onDismissRequest = { showCloudDialog = false },
+            title = { Text("Cloud backend IP / Host") },
+            text = {
+                Column {
+                    Text(
+                        "Enter the computer running the Cloud backend. Port 3001 is used automatically.\n\nExamples: 192.168.1.50 or cloudbox.local",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    TextField(
+                        value = cloudHostInput,
+                        onValueChange = { cloudHostInput = it },
+                        label = { Text("Cloud host or IP") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Result: " + runCatching { CloudBackendPrefs.computeCloudBaseUrl(cloudHostInput) }
+                            .getOrElse { "(invalid)" },
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        try {
+                            val baseUrl = CloudBackendPrefs.computeCloudBaseUrl(cloudHostInput)
+                            CloudBackendPrefs.setRawHostInput(context, cloudHostInput)
+                            com.example.esp32pairingapp.network.ApiConfig.setCloudBaseUrlOverride(baseUrl)
+                            errorMessage = "✅ Cloud backend set to $baseUrl"
+                            showCloudDialog = false
+                        } catch (e: Exception) {
+                            errorMessage = "❌ Invalid cloud address: ${e.message}"
+                        }
+                    },
+                    enabled = cloudHostInput.isNotBlank()
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                Button(onClick = { showCloudDialog = false }) {
+                    Text("Cancel")
+                }
             }
-
-            onStatus(false, "Waiting for ESP to connect... (poll #$pollCount)")
-        } catch (e: Exception) {
-            Log.d("WifiSetup", "Poll #$pollCount failed: ${e.message}")
-            onStatus(false, "Waiting for ESP... (poll #$pollCount, retrying)")
-        }
-
-        delay(POLL_INTERVAL_MS)
+        )
     }
 
-    onStatus(false, "Timeout: ESP32 did not confirm WiFi connection within ${POLL_TIMEOUT_MS / 1000}s")
+    // Pi backend dialog (Edit Pi)
+    if (showPiDialog) {
+        AlertDialog(
+            onDismissRequest = { showPiDialog = false },
+            title = { Text("Raspberry Pi IP / Host") },
+            text = {
+                Column {
+                    Text(
+                        "Enter the Raspberry Pi's IP or hostname. Port 4000 is used automatically.\n\nExamples: 192.168.1.73 or raspberrypi.local",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    TextField(
+                        value = piHostInput,
+                        onValueChange = { piHostInput = it },
+                        label = { Text("Pi host or IP") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Result: " + runCatching { PiBackendPrefs.computePiBaseUrl(piHostInput) }
+                            .getOrElse { "(invalid)" },
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        try {
+                            val baseUrl = PiBackendPrefs.computePiBaseUrl(piHostInput)
+                            PiBackendPrefs.setRawHostInput(context, piHostInput)
+                            com.example.esp32pairingapp.network.ApiConfig.setPiBaseUrlOverride(baseUrl)
+                            errorMessage = "✅ Pi backend set to $baseUrl"
+                            piBackendStatus = null
+                            showPiDialog = false
+                            if (CloudBackendPrefs.getRawHostInput(context).isNullOrBlank()) {
+                                showCloudDialog = true
+                            }
+                        } catch (e: Exception) {
+                            errorMessage = "❌ Invalid Pi address: ${e.message}"
+                        }
+                    },
+                    enabled = piHostInput.isNotBlank()
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                Button(onClick = { showPiDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -788,40 +1065,47 @@ fun WifiCredentialsDialog(
     )
 }
 
-@Composable
-fun PermissionScreen(
-    hasPermission: Boolean,
-    onRequestPermission: () -> Unit
+/**
+ * Polls /api/wifistatus until ESP32 reports connected.
+ */
+private suspend fun pollWifiStatus(
+    network: Network,
+    httpClient: com.example.esp32pairingapp.network.EspHttpClient,
+    scope: kotlinx.coroutines.CoroutineScope,
+    onStatus: (isConnected: Boolean, status: String) -> Unit
 ) {
-    Scaffold { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = if (hasPermission) "Location Permission Granted"
-                    else "Location Permission Required",
-                    style = MaterialTheme.typography.headlineSmall
-                )
+    val startTime = System.currentTimeMillis()
+    var pollCount = 0
 
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "This permission is needed for Wi-Fi pairing to discover and connect to the ESP32.",
-                    style = MaterialTheme.typography.bodyMedium
-                )
+    while (scope.isActive && (System.currentTimeMillis() - startTime) < POLL_TIMEOUT_MS) {
+        pollCount++
+        try {
+            val response = httpClient.get(com.example.esp32pairingapp.network.ApiConfig.getWifiStatusUrl(), network)
+            val json = JSONObject(response)
+            val connected = json.optString("connected", "").lowercase() == "true"
 
-                Spacer(modifier = Modifier.height(20.dp))
-
-                Button(onClick = onRequestPermission) {
-                    Text(text = if (hasPermission) "Permission OK" else "Grant Permission")
-                }
+            if (connected) {
+                onStatus(true, "ESP32 connected to home WiFi ✅")
+                return
             }
+
+            onStatus(false, "Waiting for ESP to connect... (poll #$pollCount)")
+        } catch (_: Exception) {
+            onStatus(false, "Waiting for ESP... (poll #$pollCount, retrying)")
         }
+
+        delay(POLL_INTERVAL_MS)
     }
+
+    onStatus(false, "Timeout: ESP32 did not confirm WiFi connection within ${POLL_TIMEOUT_MS / 1000}s")
 }
+
+// Model for events/clips displayed in StreamPage
+data class VideoClip(
+    val id: String,
+    val filename: String,
+    val timestamp: String,
+    val deviceId: String,
+    val thumbnailUrl: String?,
+    val videoUrl: String?
+)
