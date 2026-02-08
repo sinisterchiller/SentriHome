@@ -24,6 +24,12 @@ void apinewpass(){
     WiFi.begin(newssid, newpass);
 }
 
+void apisetmasterip(){
+    String setmasterip = server.arg("setmasterip");
+    Serial.println("Raspberry IP:" + setmasterip);
+    server.send(200, "text/plain", "OK");
+}
+
 void apiwifistatus(){
     bool connected = false;
     if (WiFi.status() == WL_CONNECTED){
@@ -43,4 +49,5 @@ void apihandle(){
     server.on("/api/newpass", HTTP_POST, apinewpass);
     server.on("/api/newssid", HTTP_POST, apinewssid);
     server.on("/api/wifistatus", HTTP_GET, apiwifistatus);
+    server.on("/api/setmasterip", HTTP_POST, apisetmasterip);
 }

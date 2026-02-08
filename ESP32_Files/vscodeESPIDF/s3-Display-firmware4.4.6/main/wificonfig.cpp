@@ -44,12 +44,30 @@ void wifi_receive(void) {
   }
 }
 
-void wifiapstart(){
+bool wifiapstart(){
   IPAddress apIP(192,168,10,1);
   IPAddress gateway(192,168,10,1);
   IPAddress subnet(255,255,255,0);
   WiFi.softAPConfig(apIP, gateway, subnet);
-  WiFi.softAP("ESP32_Master_Config", "12345678");
+
+  const int maxTries = 3;
+  for (int i = 0; i < maxTries; i++) {
+    if (WiFi.softAP("ESP32_Master_Config", "12345678")) {
+      // Wait until AP actually has an IP (ready to serve)
+      unsigned long start = millis();
+      while (WiFi.softAPIP()[0] == 0 && (millis() - start < 5000)) {
+        delay(50);
+      }
+      if (WiFi.softAPIP()[0] != 0) {
+        Serial.printf("AP started, IP: %s\n", WiFi.softAPIP().toString().c_str());
+        return true;
+      }
+    }
+    Serial.printf("AP start attempt %d failed, retrying...\n", i + 1);
+    delay(1000);
+  }
+  Serial.println("AP failed to start after retries");
+  return false;
 }
 
 String memoryssid = "";
@@ -62,12 +80,16 @@ void getcred(){
 void wifistastart(){
   getcred();
   WiFi.begin(memoryssid, memorypass);
+  Serial.printf("WifiConnected");
 }
 
 static bool serverStarted = false;
 void wifiInit(){
   WiFi.mode(WIFI_AP_STA);
   wifiapstart();
+  if (!wifiapstart()) {
+    Serial.println("Warning: AP did not start; continuing with STA only.");
+  }
   delay(1000);
   wifistastart();
   udp.begin(udpPort);

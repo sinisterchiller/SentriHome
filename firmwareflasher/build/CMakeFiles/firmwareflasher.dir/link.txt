@@ -1,0 +1,1 @@
+/usr/bin/c++ -g -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/firmwareflasher.dir/main.cpp.o -o firmwareflasher  thirdparty/FTXUI/libftxui-screen.a thirdparty/FTXUI/libftxui-dom.a thirdparty/FTXUI/libftxui-component.a thirdparty/FTXUI/libftxui-dom.a thirdparty/FTXUI/libftxui-screen.a

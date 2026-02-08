@@ -1,0 +1,10 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/anuragkoushik/Desktop/Deployment/Home-Security/firmwareflasher/build/cmake_install.cmake",
+		"/Users/anuragkoushik/Desktop/Deployment/Home-Security/firmwareflasher/build/thirdparty/FTXUI/cmake_install.cmake",
+		"/Users/anuragkoushik/Desktop/Deployment/Home-Security/firmwareflasher/build/thirdparty/FTXUI/examples/cmake_install.cmake",
+		"/Users/anuragkoushik/Desktop/Deployment/Home-Security/firmwareflasher/build/thirdparty/FTXUI/doc/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
