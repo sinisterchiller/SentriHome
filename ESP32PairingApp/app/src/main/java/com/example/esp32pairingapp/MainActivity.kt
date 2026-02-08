@@ -4,12 +4,12 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -18,9 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.esp32pairingapp.network.EspHttpClient
-import com.example.esp32pairingapp.network.NetworkBinder
 import com.example.esp32pairingapp.ui.theme.ESP32PairingAppTheme
-import com.example.esp32pairingapp.wifi.WifiConnector
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.delay
@@ -41,11 +39,7 @@ class MainActivity : ComponentActivity() {
 
     private var hasLocationPermission by mutableStateOf(false)
 
-    // Create these ONCE (prevents connect-then-drop issues)
-    private val wifiConnector by lazy { WifiConnector(this) }
-    private val networkBinder by lazy { NetworkBinder(this) }
-    private val httpClient by lazy { EspHttpClient() }
-
+    // Request permissions (keep this; some devices require it for Wi-Fi related behavior)
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
             val locationGranted = results[Manifest.permission.ACCESS_FINE_LOCATION] == true
@@ -55,6 +49,8 @@ class MainActivity : ComponentActivity() {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) nearbyGranted else locationGranted
         }
 
+    private val httpClient by lazy { EspHttpClient() }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -63,26 +59,28 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             ESP32PairingAppTheme {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    WifiConnectTestScreen(
-                        connector = wifiConnector,
-                        networkBinder = networkBinder,
-                        httpClient = httpClient
+                // Optional: show permission screen first.
+                // If you want to skip it, remove this if/else and always show WifiManualScreen.
+                if (!hasLocationPermission) {
+                    PermissionScreen(
+                        hasPermission = hasLocationPermission,
+                        onRequestPermission = { requestRequiredPermissions() }
                     )
                 } else {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("Android 10+ required for this test screen.")
-                    }
+                    WifiManualScreen(httpClient = httpClient)
                 }
             }
         }
     }
 
     private fun isLocationPermissionGranted(): Boolean {
-        return ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.ACCESS_FINE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) ==
+                    PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                    PackageManager.PERMISSION_GRANTED
+        }
     }
 
     private fun requestRequiredPermissions() {
@@ -94,15 +92,11 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@RequiresApi(Build.VERSION_CODES.Q)
 @Composable
-fun WifiConnectTestScreen(
-    connector: WifiConnector,
-    networkBinder: NetworkBinder,
-    httpClient: EspHttpClient
-) {
-    var status by remember { mutableStateOf("Idle") }
-    var network by remember { mutableStateOf<android.net.Network?>(null) }
+fun WifiManualScreen(httpClient: EspHttpClient) {
+    var status by remember { mutableStateOf("Manual connection mode:\n" +
+            "1) Connect your phone to the ESP32 Wi-Fi in Android Settings\n" +
+            "2) Return here and tap “Test Connection”") }
     var showWifiDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -111,102 +105,64 @@ fun WifiConnectTestScreen(
             .padding(16.dp)
             .fillMaxSize()
     ) {
-        Text("Wi-Fi Test Status:", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(8.dp))
-        Text(status, style = MaterialTheme.typography.bodyMedium)
+        Text(
+            text = "Status",
+            style = MaterialTheme.typography.headlineSmall,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .animateContentSize(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        ) {
+            Text(
+                text = status,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.padding(16.dp)
+            )
+        }
 
         Spacer(Modifier.height(16.dp))
 
-        Button(
-            onClick = {
-                scope.launch {
-                    status = "Connecting to ESP32 WiFi..."
-                    try {
-                        val connectedNetwork = connector.connectAndroid10Plus(
-                            ssid = "ESP32_Master_Config",
-                            password = "12345678",
-                            timeoutMs = 30_000L
-                        )
-                        network = connectedNetwork
 
-                        // Bind this app’s traffic to ESP32 network
-                        val bound = networkBinder.bindTo(connectedNetwork)
-                        if (bound) {
-                            status = "Connected ✅\nBound to ESP32 network.\nStabilizing..."
-                        } else {
-                            status = "Connected ⚠️\nBind failed (traffic may go to mobile)."
-                        }
-
-                        // Small stabilize delay + ping helps Android "stick" to the AP
-                        delay(400)
-                        try {
-                            httpClient.get(HEALTH_URL, connectedNetwork)
-                            status = "Connected ✅\nBound ✅\nHealth check OK ✅"
-                        } catch (e: Exception) {
-                            status = "Connected ✅\nBound ✅\nHealth check failed ⚠️: ${e.message}"
-                        }
-
-                    } catch (e: Exception) {
-                        status = "Failed ❌: ${e.message}"
-                        network = null
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("1. Connect to ESP32")
-        }
-
-        Spacer(Modifier.height(8.dp))
-
+        // ✅ Always enabled
         Button(
             onClick = {
                 scope.launch {
                     status = "Testing HTTP connection..."
-                    val testNetwork = network
-                    if (testNetwork == null) {
-                        status = "Error: Not connected to ESP32"
-                        return@launch
-                    }
-
                     try {
-                        val response = httpClient.get(HEALTH_URL, testNetwork)
-                        status = "HTTP test succeeded ✅\n${response.take(200)}"
+                        val response =
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                                httpClient.get(HEALTH_URL, network = null)
+                            } else {
+                                "HTTP requires Android 5.0+"
+                            }
+
+                        status = "HTTP test succeeded ✅\n${response.take(400)}"
                     } catch (e: Exception) {
-                        status = "HTTP test failed ❌: ${e.message}"
+                        status =
+                            "HTTP test failed ❌: ${e.message}\n\n" +
+                                    "Make sure you are connected to the ESP32 Wi-Fi in Settings."
                     }
                 }
             },
-            enabled = network != null,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("2. Test HTTP (/api/health)")
+            Text("Test Connection")
         }
 
         Spacer(Modifier.height(8.dp))
 
+        // ✅ Always enabled
         Button(
             onClick = { showWifiDialog = true },
-            enabled = network != null,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("3. Set WiFi Creds")
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        Button(
-            onClick = {
-                // Unbind + disconnect + clear state
-                networkBinder.unbind()
-                connector.disconnect()
-                network = null
-                status = "Disconnected"
-            },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-        ) {
-            Text("Disconnect")
+            Text("Send WiFi Credentials")
         }
 
         Spacer(Modifier.height(24.dp))
@@ -216,14 +172,15 @@ fun WifiConnectTestScreen(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("Notes:", style = MaterialTheme.typography.titleSmall)
+                Text("Manual mode:", style = MaterialTheme.typography.titleSmall)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "1. Click 'Connect to ESP32'\n" +
-                            "2. Wait for 'Connected ✅'\n" +
-                            "3. Test HTTP to verify binding\n" +
-                            "4. Open Chrome → http://192.168.10.1\n\n" + "Note: Network binding routes ALL app traffic through ESP32, " +
-                            "including Chrome when opened from this app.",
+                    text =
+                            "• Step 1: Open Android Wi-Fi settings and connect to the ESP32 network\n" +
+                                "• Step 2: Return to this app\n" +
+                                "• Step 3: Tap “Test Connection”\n" +
+                                "• Step 4: Tap “Send Wi-Fi Credentials” to send your home Wi-Fi info\n\n" +
+                                "If “Test Connection” fails, you’re probably not connected to ESP32 Wi-Fi.",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -236,15 +193,15 @@ fun WifiConnectTestScreen(
             onSubmit = { ssid, password ->
                 scope.launch {
                     status = "Sending WiFi credentials..."
-                    val testNetwork = network
-                    if (testNetwork == null) {
-                        status = "Error: Not connected to ESP32"
-                        showWifiDialog = false
-                        return@launch
-                    }
 
                     try {
-                        // Clean + encode (prevents hidden whitespace issue)
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+                            status = "WiFi setup requires Android 5.0+"
+                            showWifiDialog = false
+                            return@launch
+                        }
+
+                        // Clean + encode (fixes hidden whitespace / newline issue)
                         val cleanedSsid = ssid.trim().replace(Regex("\\p{C}"), "")
                         val cleanedPass = password.trim().replace(Regex("\\p{C}"), "")
 
@@ -254,23 +211,37 @@ fun WifiConnectTestScreen(
                         val ssidBody = "SSID=$encodedSsid"
                         val passBody = "pass=$encodedPass"
 
-                        httpClient.post(NEWSSID_URL, ssidBody, "application/x-www-form-urlencoded", testNetwork)
-                        httpClient.post(NEWPASS_URL, passBody, "application/x-www-form-urlencoded", testNetwork)
+                        // Manual mode: no Network parameter
+                        httpClient.post(
+                            url = NEWSSID_URL,
+                            body = ssidBody,
+                            contentType = "application/x-www-form-urlencoded",
+                            network = null
+                        )
 
-                        status = "Credentials sent ✅\nPolling for WiFi connection..."
+                        httpClient.post(
+                            url = NEWPASS_URL,
+                            body = passBody,
+                            contentType = "application/x-www-form-urlencoded",
+                            network = null
+                        )
+
                         showWifiDialog = false
+                        status = "Credentials sent ✅\nConnecting ESP32 to your home Wi-Fi…"
 
-                        pollWifiStatus(testNetwork, httpClient) { isConnected, pollStatus ->
-                            status = pollStatus
-                            if (isConnected) {
-                                status = "ESP32 connected to home WiFi ✅\nSetup complete!"
+                        pollWifiStatus(httpClient) { isConnected, pollStatus ->
+                            status = if (isConnected) {
+                                "ESP32 connected to home WiFi ✅\nSetup complete!"
+                            } else {
+                                pollStatus
                             }
                         }
 
                     } catch (e: Exception) {
-                        Log.e("WifiSetup", "Failed to send credentials", e)
-                        status = "Failed to send credentials ❌: ${e.message}"
                         showWifiDialog = false
+                        status =
+                            "Failed to send credentials ❌: ${e.message}\n\n" +
+                                    "Make sure you are connected to ESP32 Wi-Fi in Settings."
                     }
                 }
             }
@@ -283,37 +254,58 @@ fun WifiConnectTestScreen(
  * Stops on success, timeout, or coroutine cancellation.
  */
 private suspend fun pollWifiStatus(
-    network: android.net.Network,
     httpClient: EspHttpClient,
     onStatus: (isConnected: Boolean, status: String) -> Unit
 ) {
     val startTime = System.currentTimeMillis()
-    var pollCount = 0
 
-    while (currentCoroutineContext().isActive &&
+    fun secondsElapsed(): Long = (System.currentTimeMillis() - startTime) / 1000
+
+    while (kotlinx.coroutines.currentCoroutineContext().isActive &&
         (System.currentTimeMillis() - startTime) < POLL_TIMEOUT_MS
     ) {
-        pollCount++
         try {
-            val response = httpClient.get(WIFISTATUS_URL, network)
-            val json = JSONObject(response)
-            val connected = json.optString("connected", "").lowercase() == "true"
+            val response = httpClient.get(WIFISTATUS_URL, network = null)
 
-            if (connected) {
-                onStatus(true, "ESP32 connected to home WiFi ✅")
-                return
+            // Try JSON first
+            val json = runCatching { JSONObject(response) }.getOrNull()
+
+            if (json != null) {
+                val connected = json.optBoolean("connected", false)
+                val state = json.optString("state", "")
+                val reason = json.optString("reason", "")
+                val ip = json.optString("ip", "")
+
+                if (connected) {
+                    val extra = if (ip.isNotBlank()) "\nIP: $ip" else ""
+                    onStatus(true, "Connected to home Wi-Fi ✅$extra")
+                    return
+                }
+
+                // Not connected yet — show best available info
+                val detail = when {
+                    state.isNotBlank() -> state
+                    reason.isNotBlank() -> "Error: $reason"
+                    else -> "Connecting…"
+                }
+
+                onStatus(false, "Waiting for ESP32… ($detail)\nElapsed: ${secondsElapsed()}s")
+            } else {
+                // Not JSON — show raw response safely
+                val shortRaw = response.trim().take(80)
+                onStatus(false, "Waiting for ESP32…\nStatus: $shortRaw\nElapsed: ${secondsElapsed()}s")
             }
 
-            onStatus(false, "Waiting for ESP to connect... (poll #$pollCount)")
-        } catch (e: Exception) {
-            onStatus(false, "Waiting for ESP... (poll #$pollCount, retrying)")
+        } catch (_: Exception) {
+            onStatus(false, "Waiting for ESP32…\nElapsed: ${secondsElapsed()}s")
         }
 
         delay(POLL_INTERVAL_MS)
     }
 
-    onStatus(false, "Timeout: ESP32 did not confirm WiFi connection within ${POLL_TIMEOUT_MS / 1000}s")
+    onStatus(false, "Timeout ❌\nESP32 did not confirm home Wi-Fi within ${POLL_TIMEOUT_MS / 1000}s.")
 }
+
 
 @Composable
 fun WifiCredentialsDialog(
@@ -361,4 +353,43 @@ fun WifiCredentialsDialog(
             Button(onClick = onDismiss) { Text("Cancel") }
         }
     )
+}
+
+@Composable
+fun PermissionScreen(
+    hasPermission: Boolean,
+    onRequestPermission: () -> Unit
+) {
+    Scaffold { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = if (hasPermission) "Permission Granted"
+                    else "Permission Required",
+                    style = MaterialTheme.typography.headlineSmall
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "This permission helps Wi-Fi operations on some Android versions/devices.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Button(onClick = onRequestPermission) {
+                    Text(text = if (hasPermission) "Permission OK" else "Grant Permission")
+                }
+            }
+        }
+    }
 }
