@@ -11,9 +11,8 @@
 
 extern WebServer server;
 void wifiInit(void);
-void wifiupdate(void);
 extern WiFiUDP udp;
-void setuppageweb(void);
+void setuppageserver(void);
 void wifi_send(const char* message);
 void wifi_receive(void);
 

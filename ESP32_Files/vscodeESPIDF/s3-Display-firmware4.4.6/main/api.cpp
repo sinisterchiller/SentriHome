@@ -11,8 +11,9 @@ void apicreds(){
     server.send(200, "application/json", json);
 }
 
+String newssid;
 void apinewssid(){
-    String newssid = server.arg("SSID");
+    newssid = server.arg("SSID");
     Serial.println("SSID:" + newssid);
     server.send(200, "text/plain", "OK");
 }
@@ -20,12 +21,26 @@ void apinewpass(){
     String newpass = server.arg("pass");
     Serial.println("Password:" + newpass);
     server.send(200, "text/plain", "OK");
+    WiFi.begin(newssid, newpass);
 }
 
+void apiwifistatus(){
+    bool connected = false;
+    if (WiFi.status() == WL_CONNECTED){
+        connected = true;
+    }else{
+        connected = false;
+    }
+    String json = "{\n"
+                  "  \"connected\": " + String(connected ? "true" : "false") + "\n"
+                  "}";             
+    server.send(200, "application/json", json);
+}
 
 void apihandle(){
     server.on("/api/health", HTTP_GET, apihealth);
     server.on("/api/creds", HTTP_GET, apicreds);
     server.on("/api/newpass", HTTP_POST, apinewpass);
     server.on("/api/newssid", HTTP_POST, apinewssid);
+    server.on("/api/wifistatus", HTTP_GET, apiwifistatus);
 }

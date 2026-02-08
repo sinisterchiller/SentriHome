@@ -1,11 +1,4 @@
-// 1. First start the wifi as Station, creds from LittleFS
-// 2. If setuppage, then start Accesspoint, and have the webpage delivered
-// 3. Webpage takes the credentials, and stores it in LittleFS
-
 #include "wificonfig.h"
-
-String wifissid = "";
-String wifipassword = "";
 
 const char* DEVICE_NAME = "ESP_DISPLAY";
 const char* targetIP = "192.168.10.2"; 
@@ -13,55 +6,8 @@ const int udpPort = 5005;
 WiFiUDP udp;
 unsigned long lastSend = 0;
 char wifiReceiveBuffer[128];
-
-void handleRoot();
-void handleSaveWifi();
-
-static bool serverStarted = false;
-
-bool nonblockingdelay(unsigned long time){
-    static unsigned long start = 0;
-    if (start == 0) {
-        start = millis();
-        return false;
-    }
-    
-    unsigned long elapse = millis() - start;
-    if (elapse >= time){
-        start = 0;  
-        return true;
-    }
-    return false;
-}
-
-void wifiInit(){
-    wifissid = littlefsReadFile("/wifissid.txt");
-    wifipassword = littlefsReadFile("/wifipass.txt");
-    WiFi.mode(WIFI_AP_STA);
-    wifissid.trim();
-    wifipassword.trim();
-    WiFi.begin(wifissid, wifipassword);
-
-    IPAddress apIP(192,168,10,1);
-    IPAddress gateway(192,168,10,1);
-    IPAddress subnet(255,255,255,0);
-    WiFi.softAPConfig(apIP, gateway, subnet);
-    WiFi.softAP("ESP32_Master_Config", "12345678");
-    
-    udp.begin(udpPort);
-}
-
-void wifiupdate(){
-    if (WiFi.status() == WL_DISCONNECTED || WiFi.status() == WL_CONNECTION_LOST){
-      //Serial.printf("Disconnected\n");
-        if (nonblockingdelay(2000)) {
-            WiFi.begin(wifissid, wifipassword);
-        }
-    }
-    else if (WiFi.status() == WL_CONNECTED){
-      //Serial.printf("Connected to %s\n", WiFi.SSID().c_str());
-    }
-}
+String wifissid;
+String wifipassword;
 
 void wifi_send(const char* message) {
   if (millis() - lastSend > 1000) {
@@ -98,19 +44,50 @@ void wifi_receive(void) {
   }
 }
 
-void setuppageweb(){
-    if (!homepage && setuppage && !disarmauthpage){
+void wifiapstart(){
+  IPAddress apIP(192,168,10,1);
+  IPAddress gateway(192,168,10,1);
+  IPAddress subnet(255,255,255,0);
+  WiFi.softAPConfig(apIP, gateway, subnet);
+  WiFi.softAP("ESP32_Master_Config", "12345678");
+}
+
+String memoryssid = "";
+String memorypass = "";
+void getcred(){
+  memoryssid = littlefsReadFile("/wifissid.txt");
+  memorypass = littlefsReadFile("/wifipass.txt");
+}
+
+void wifistastart(){
+  getcred();
+  WiFi.begin(memoryssid, memorypass);
+}
+
+static bool serverStarted = false;
+void wifiInit(){
+  WiFi.mode(WIFI_AP_STA);
+  wifiapstart();
+  delay(1000);
+  wifistastart();
+  udp.begin(udpPort);
+}
+
+void setuppageserver(){
+  if (!homepage && setuppage && !disarmauthpage){
         
-        if (!serverStarted) {
-            server.begin();
-            serverStarted = true;
-        }
-        server.handleClient();
+    if (!serverStarted) {
+        server.begin();
+        serverStarted = true;
+        Serial.print("server started");
     }
-    else{
-        if (serverStarted) {
-          server.stop();
-          serverStarted = false;
-        }
-    }
+    server.handleClient();
+  }
+  else{
+      if (serverStarted) {
+        server.stop();
+        serverStarted = false;
+        Serial.print("server stopped");
+      }
+  }
 }

@@ -1,4 +1,3 @@
-#include "tft_interface.h"
 #include "display.h"
 #include "filesys.h"
 #include "wificonfig.h"
@@ -13,7 +12,6 @@ void setup() {
 
 void loop() {
   display();
-  wifiupdate();
   wifi_receive();
-  setuppageweb();
+  setuppageserver();
 }
