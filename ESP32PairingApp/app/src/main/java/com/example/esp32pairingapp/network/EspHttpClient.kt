@@ -16,7 +16,8 @@ import java.net.URLEncoder
  * HTTP client that can make requests through a specific Network.
  * Required for accessing ESP32 web server at 192.168.10.1 through the ESP32 WiFi network.
  */
-class EspHttpClient {
+class
+EspHttpClient {
 
     /**
      * Remove leading/trailing whitespace and invisible control characters
