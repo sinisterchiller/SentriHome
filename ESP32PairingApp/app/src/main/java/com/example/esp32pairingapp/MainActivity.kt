@@ -219,9 +219,11 @@ fun WifiConnectTestScreen(
                 Text("Notes:", style = MaterialTheme.typography.titleSmall)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "• Chrome may not work after app-based connection (normal on Android 10+).\n" +
-                            "• Always test API calls from inside the app.\n" +
-                            "• Disconnect unbinds traffic and releases the specifier request.",
+                    text = "1. Click 'Connect to ESP32'\n" +
+                            "2. Wait for 'Connected ✅'\n" +
+                            "3. Test HTTP to verify binding\n" +
+                            "4. Open Chrome → http://192.168.10.1\n\n" + "Note: Network binding routes ALL app traffic through ESP32, " +
+                            "including Chrome when opened from this app.",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
