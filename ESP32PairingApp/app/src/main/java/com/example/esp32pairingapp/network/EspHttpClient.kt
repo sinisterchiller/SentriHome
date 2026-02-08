@@ -4,44 +4,45 @@ import android.net.Network
 import android.os.Build
 import android.util.Log
 import androidx.annotation.RequiresApi
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.InputStreamReader
-import java.io.OutputStreamWriter
+import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
-/**
- * HTTP client that can make requests through a specific Network.
- * Required for accessing ESP32 web server at 192.168.10.1 through the ESP32 WiFi network.
- */
 class EspHttpClient {
 
     /**
-     * Make a GET request through the specified network.
+     * Performs HTTP GET request
+     * @param url The full URL to request
+     * @param network Optional network to bind request to (for ESP32 direct connection)
+     * @return Response body as String
      */
     @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
-    suspend fun get(url: String, network: Network? = null): String = withContext(Dispatchers.IO) {
+    fun get(url: String, network: Network? = null): String {
+        Log.d("EspHttpClient", "GET request to: $url")
+
         val urlObj = URL(url)
-        val connection = if (network != null) {
+        val connection = if (network != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             network.openConnection(urlObj) as HttpURLConnection
         } else {
             urlObj.openConnection() as HttpURLConnection
         }
 
-        try {
+        return try {
             connection.requestMethod = "GET"
-            connection.connectTimeout = 10_000
-            connection.readTimeout = 10_000
+            connection.connectTimeout = 10000
+            connection.readTimeout = 10000
+            connection.setRequestProperty("Accept", "application/json")
 
             val responseCode = connection.responseCode
-            Log.d("EspHttpClient", "GET $url -> Response code: $responseCode")
+            Log.d("EspHttpClient", "Response code: $responseCode")
 
-            if (responseCode in 200..299) {
-                BufferedReader(InputStreamReader(connection.inputStream)).use { reader ->
-                    reader.readText()
-                }
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                val reader = BufferedReader(InputStreamReader(connection.inputStream))
+                val response = reader.use { it.readText() }
+                Log.d("EspHttpClient", "Response: ${response.take(200)}")
+                response
             } else {
                 throw Exception("HTTP $responseCode: ${connection.responseMessage}")
             }
@@ -51,61 +52,52 @@ class EspHttpClient {
     }
 
     /**
-     * Make a POST request through the specified network.
+     * Performs HTTP POST request
+     * @param url The full URL to request
+     * @param body The request body (JSON string)
+     * @param contentType Content-Type header (default: application/json)
+     * @param network Optional network to bind request to (for ESP32 direct connection)
+     * @return Response body as String
      */
     @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
-    suspend fun post(
-        url: String,
-        body: String,
-        contentType: String = "application/json",
-        network: Network? = null
-    ): String = withContext(Dispatchers.IO) {
+    fun post(url: String, body: String = "", contentType: String = "application/json", network: Network? = null): String {
+        Log.d("EspHttpClient", "POST request to: $url")
+        Log.d("EspHttpClient", "Body: $body")
+
         val urlObj = URL(url)
-        val connection = if (network != null) {
+        val connection = if (network != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             network.openConnection(urlObj) as HttpURLConnection
         } else {
             urlObj.openConnection() as HttpURLConnection
         }
 
-        try {
+        return try {
             connection.requestMethod = "POST"
-            connection.connectTimeout = 10_000
-            connection.readTimeout = 10_000
-            connection.doOutput = true
+            connection.connectTimeout = 10000
+            connection.readTimeout = 10000
             connection.setRequestProperty("Content-Type", contentType)
-            connection.setRequestProperty("Content-Length", body.length.toString())
+            connection.setRequestProperty("Accept", "application/json")
+            connection.doOutput = true
 
-            Log.d("EspHttpClient", "POST $url with body length: ${body.length}")
-
-            // Write body
-            OutputStreamWriter(connection.outputStream).use { writer ->
-                writer.write(body)
-                writer.flush()
+            // Write body if present
+            if (body.isNotEmpty()) {
+                connection.outputStream.use { outputStream ->
+                    val writer = outputStream.bufferedWriter()
+                    writer.write(body)
+                    writer.flush()
+                }
             }
 
             val responseCode = connection.responseCode
-            Log.d("EspHttpClient", "POST $url -> Response code: $responseCode")
+            Log.d("EspHttpClient", "Response code: $responseCode")
 
-            if (responseCode in 200..299) {
-                try {
-                    BufferedReader(InputStreamReader(connection.inputStream)).use { reader ->
-                        reader.readText()
-                    }
-                } catch (e: Exception) {
-                    // Some ESP32 responses might not have a body, which is OK
-                    Log.d("EspHttpClient", "No response body (this is OK)")
-                    "OK"
-                }
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                val reader = BufferedReader(InputStreamReader(connection.inputStream))
+                val response = reader.use { it.readText() }
+                Log.d("EspHttpClient", "Response: ${response.take(200)}")
+                response
             } else {
-                // Try to read error response
-                val errorBody = try {
-                    BufferedReader(InputStreamReader(connection.errorStream)).use { reader ->
-                        reader.readText()
-                    }
-                } catch (e: Exception) {
-                    connection.responseMessage
-                }
-                throw Exception("HTTP $responseCode: $errorBody")
+                throw Exception("HTTP $responseCode: ${connection.responseMessage}")
             }
         } finally {
             connection.disconnect()
