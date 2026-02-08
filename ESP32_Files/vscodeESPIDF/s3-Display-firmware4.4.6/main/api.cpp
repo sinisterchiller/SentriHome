@@ -30,6 +30,12 @@ void apisetmasterip(){
     server.send(200, "text/plain", "OK");
 }
 
+void apichangedpass(){
+    String setmasterip = server.arg("pass");
+    Serial.println("Encrypted pass: " + setmasterip);
+    server.send(200, "text/plain", "OK");
+}
+
 void apiwifistatus(){
     bool connected = false;
     if (WiFi.status() == WL_CONNECTED){
@@ -47,6 +53,7 @@ void apihandle(){
     server.on("/api/health", HTTP_GET, apihealth);
     server.on("/api/creds", HTTP_GET, apicreds);
     server.on("/api/newpass", HTTP_POST, apinewpass);
+    server.on("/api/changedpass", HTTP_POST, apichangedpass);
     server.on("/api/newssid", HTTP_POST, apinewssid);
     server.on("/api/wifistatus", HTTP_GET, apiwifistatus);
     server.on("/api/setmasterip", HTTP_POST, apisetmasterip);

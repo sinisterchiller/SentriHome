@@ -47,44 +47,59 @@ std::string GetExecutableDir() {
 int main() {
     auto screen = ScreenInteractive::Fullscreen();
 
+    std::vector<std::string> options = {
+        "ESP Main",
+        "ESP Motion Detector Module",
+    };
+
+    int selected = 0;
+
+    auto selectboarddropdown = Dropdown(&options, &selected);
+    auto layout = Container::Vertical({
+        selectboarddropdown,
+    });
+
     bool setupbutton = false;
-    bool board = false;
 
     std::vector<std::string> ls_lines;
 
+    
+
     auto entersetupbutton = Button(
-        "Enter Setup",
+        "Configure Setup",
         [&] {
             setupbutton = true;
 
-            std::string exe_dir = GetExecutableDir();
+            if (selected == 0) {
+                std::string exe_dir = GetExecutableDir();
 
-            std::string cmd =
-                "osascript "
-                "-e 'tell application \"Terminal\" to activate' "
-                "-e 'tell application \"Terminal\" to do script "
-                "\"cd \\\"" + exe_dir + "\\\" && "
-                "mkdir -p testclone && "
-                "git clone https://github.com/ArthurSonzogni/FTXUI.git testclone/FTXUI; "
-                "echo; echo DONE; echo Press any key to close...; read -n 1\"'";
+                std::string cmd =
+                    "osascript "
+                    "-e 'tell application \"Terminal\" to activate' "
+                    "-e 'tell application \"Terminal\" to do script "
+                    "\"cd \\\"" + exe_dir + "\\\" && "
+                    "mkdir -p testclone && "
+                    "git clone https://github.com/ArthurSonzogni/FTXUI.git testclone/MainModule; "
+                    "echo; echo DONE; echo Press any key to close...; read -n 1\"'";
 
-            std::system(cmd.c_str());
+                std::system(cmd.c_str());
+            }
+            if (selected == 1) {
+
+            }
+            
         },
         CenteredButtonOption()
     );
 
-    auto selectboardbutton = Button(
-        "Select Board",
-        [&] { board = true; },
-        CenteredButtonOption()
-    );
+    
 
-    auto buttons = Container::Vertical({
+    auto container = Container::Vertical({
         entersetupbutton,
-        selectboardbutton,
+        selectboarddropdown,
     });
 
-    auto renderer = Renderer(buttons, [&] {
+    auto renderer = Renderer(container, [&] {
         return vbox({
             text("███████╗███████╗██████╗     ███████╗██╗      █████╗ ███████╗██╗  ██╗███████╗██████╗ ")| center,
             text("██╔════╝██╔════╝██╔══██╗    ██╔════╝██║     ██╔══██╗██╔════╝██║  ██║██╔════╝██╔══██╗")| center,
@@ -98,9 +113,10 @@ int main() {
             hbox({ filler(), text("Welcome to the setup window") | center, filler() }),
             hbox({ filler(), text("Follow the steps in the program or visit blah blah blah") | center, filler() }),
             text("") | center,
-
-            hbox({ filler(), entersetupbutton->Render(), filler() }),
-            hbox({ filler(), selectboardbutton->Render(), filler() }),
+            hbox({ filler(), text("Select Board  "), selectboarddropdown->Render(), filler() }),
+            text("") | center,
+            hbox({ filler(), entersetupbutton->Render()| size(WIDTH, EQUAL, 20), filler() }),
+            
 
             filler(),
 

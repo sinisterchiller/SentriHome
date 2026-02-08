@@ -119,10 +119,9 @@ Component Dropdown(DropdownOption option) {
                        separator(),
                        std::move(radiobox_element) | vscroll_indicator | frame |
                            size(HEIGHT, LESS_THAN, max_height),
-                   }) |
-                   border;
+                   }) ;
           }
-          return vbox({std::move(checkbox_element), filler()}) | border;
+          return vbox({std::move(checkbox_element), filler()}) ;
         };
       }
     }
