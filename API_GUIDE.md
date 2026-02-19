@@ -5,6 +5,8 @@
 ### **Cloud Backend (Port 3001)**
 - ✅ `GET /status` - Health check
 - ✅ `GET /api/events` - List events with thumbnails
+- ✅ `GET /api/clips/:eventId` - Stream video clip from Google Drive
+- ✅ `GET /api/clips/:eventId/thumbnail` - Stream thumbnail from Google Drive
 - ✅ `POST /api/events/upload` - Upload files (Pi only)
 - ✅ `DELETE /api/clear-all` - Clear database
 - ❌ `POST /start` - Not available (use Pi backend)
@@ -39,12 +41,35 @@ curl -X POST http://localhost:4000/motion
 # Get events
 curl http://localhost:3001/api/events
 
+# Stream video clip (replace EVENT_ID with event._id from /api/events)
+curl -O -J "http://localhost:3001/api/clips/EVENT_ID"
+
+# Stream thumbnail (replace EVENT_ID with event._id)
+curl -O -J "http://localhost:3001/api/clips/EVENT_ID/thumbnail"
+
 # Clear database
 curl -X DELETE http://localhost:3001/api/clear-all
 
 # Health check
 curl http://localhost:3001/status
 ```
+
+## 📹 **Clip Serving (Cloud Backend)**
+
+Clips are streamed from Google Drive through the cloud backend:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/clips/:eventId` | Streams the video file (video/mp4). Use in `<video src="...">` or download. |
+| `GET /api/clips/:eventId/thumbnail` | Streams the thumbnail image (image/jpeg). Use in `<img src="...">`. |
+
+**Example frontend usage:**
+```html
+<video src="http://localhost:3001/api/clips/675abc123def456789" controls></video>
+<img src="http://localhost:3001/api/clips/675abc123def456789/thumbnail" />
+```
+
+Replace `675abc123def456789` with the event's `_id` from `GET /api/events`.
 
 ## 🖥️ **Frontend Integration**
 
@@ -76,4 +101,7 @@ curl http://localhost:3001/status
 curl -X POST http://localhost:4000/motion
 sleep 5
 curl http://localhost:3001/api/events
+
+# Download a clip (get event ID from /api/events first)
+curl -o clip.mp4 "http://localhost:3001/api/clips/YOUR_EVENT_ID"
 ```

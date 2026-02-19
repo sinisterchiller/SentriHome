@@ -2,9 +2,8 @@ package com.example.esp32pairingapp.network
 
 import android.net.Network
 import android.os.Build
+import android.util.Log
 import androidx.annotation.RequiresApi
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
@@ -16,8 +15,7 @@ import java.net.URLEncoder
  * HTTP client that can make requests through a specific Network.
  * Required for accessing ESP32 web server at 192.168.10.1 through the ESP32 WiFi network.
  */
-class
-EspHttpClient {
+class EspHttpClient {
 
     /**
      * Remove leading/trailing whitespace and invisible control characters
@@ -37,27 +35,36 @@ EspHttpClient {
     }
 
     /**
-     * Make a GET request through the specified network.
+     * Performs HTTP GET request
+     * @param url The full URL to request
+     * @param network Optional network to bind request to (for ESP32 direct connection)
+     * @return Response body as String
      */
     @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
-    suspend fun get(url: String, network: Network? = null): String = withContext(Dispatchers.IO) {
+    fun get(url: String, network: Network? = null): String {
+        Log.d("EspHttpClient", "GET request to: $url")
+
         val urlObj = URL(url)
-        val connection = if (network != null) {
+        val connection = if (network != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             network.openConnection(urlObj) as HttpURLConnection
         } else {
             urlObj.openConnection() as HttpURLConnection
         }
 
-        try {
+        return try {
             connection.requestMethod = "GET"
             connection.connectTimeout = 10_000
             connection.readTimeout = 10_000
+            connection.setRequestProperty("Accept", "application/json")
 
             val responseCode = connection.responseCode
-            if (responseCode in 200..299) {
-                BufferedReader(InputStreamReader(connection.inputStream)).use { reader ->
-                    reader.readText()
-                }
+            Log.d("EspHttpClient", "Response code: $responseCode")
+
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                val reader = BufferedReader(InputStreamReader(connection.inputStream))
+                val response = reader.use { it.readText() }
+                Log.d("EspHttpClient", "Response: ${response.take(200)}")
+                response
             } else {
                 throw Exception("HTTP $responseCode: ${connection.responseMessage}")
             }
@@ -67,36 +74,43 @@ EspHttpClient {
     }
 
     /**
-     * Make a POST request through the specified network.
+     * Performs HTTP POST request
+     * @param url The full URL to request
+     * @param body The request body (JSON string)
+     * @param contentType Content-Type header (default: application/json)
+     * @param network Optional network to bind request to (for ESP32 direct connection)
+     * @return Response body as String
      */
     @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
-    suspend fun post(
-        url: String,
-        body: String,
-        contentType: String = "application/json",
-        network: Network? = null
-    ): String = withContext(Dispatchers.IO) {
+    fun post(url: String, body: String = "", contentType: String = "application/json", network: Network? = null): String {
+        Log.d("EspHttpClient", "POST request to: $url")
+        Log.d("EspHttpClient", "Body: $body")
+
         val urlObj = URL(url)
-        val connection = if (network != null) {
+        val connection = if (network != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             network.openConnection(urlObj) as HttpURLConnection
         } else {
             urlObj.openConnection() as HttpURLConnection
         }
 
-        try {
+        return try {
             connection.requestMethod = "POST"
             connection.connectTimeout = 10_000
             connection.readTimeout = 10_000
-            connection.doOutput = true
             connection.setRequestProperty("Content-Type", contentType)
+            connection.setRequestProperty("Accept", "application/json")
+            connection.doOutput = true
 
-            // Write body
-            OutputStreamWriter(connection.outputStream).use { writer ->
-                writer.write(body)
-                writer.flush()
+            if (body.isNotEmpty()) {
+                OutputStreamWriter(connection.outputStream).use { writer ->
+                    writer.write(body)
+                    writer.flush()
+                }
             }
 
             val responseCode = connection.responseCode
+            Log.d("EspHttpClient", "Response code: $responseCode")
+
             if (responseCode in 200..299) {
                 BufferedReader(InputStreamReader(connection.inputStream)).use { reader ->
                     reader.readText()
@@ -114,7 +128,7 @@ EspHttpClient {
      * "SSID=[user ssid]"
      */
     @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
-    suspend fun postNewSsid(
+    fun postNewSsid(
         baseUrl: String = "http://192.168.10.1",
         ssid: String,
         network: Network? = null
@@ -122,11 +136,10 @@ EspHttpClient {
         val cleaned = cleanInput(ssid)
         val encoded = encode(cleaned)
         val body = "SSID=$encoded"
-
         return post(
             url = "$baseUrl/api/newssid",
             body = body,
-            contentType = "text/plain",
+            contentType = "application/x-www-form-urlencoded",
             network = network
         )
     }
@@ -136,7 +149,7 @@ EspHttpClient {
      * "pass=[user password]"
      */
     @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
-    suspend fun postNewPass(
+    fun postNewPass(
         baseUrl: String = "http://192.168.10.1",
         password: String,
         network: Network? = null
@@ -144,11 +157,10 @@ EspHttpClient {
         val cleaned = cleanInput(password)
         val encoded = encode(cleaned)
         val body = "pass=$encoded"
-
         return post(
             url = "$baseUrl/api/newpass",
             body = body,
-            contentType = "text/plain",
+            contentType = "application/x-www-form-urlencoded",
             network = network
         )
     }

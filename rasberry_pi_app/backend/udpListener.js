@@ -1,7 +1,7 @@
 import dgram from "dgram";
 import { extractClip } from "./clipExtractor.js";
+import { getConfig } from "./config.js";
 
-const UDP_PORT = 5005;
 const TRIGGER_MESSAGE = "INTRUDER INTRUDER";
 
 // ⏱ Cooldown settings
@@ -9,6 +9,7 @@ const COOLDOWN_MS = 10_000; // 10 seconds
 let lastTriggerTime = 0;
 
 export function startUdpListener() {
+  const UDP_PORT = getConfig().UDP_PORT;
   const server = dgram.createSocket("udp4");
 
   server.on("listening", () => {
