@@ -8,7 +8,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.RequiresApi
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -18,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.esp32pairingapp.network.EspHttpClient
+import com.example.esp32pairingapp.pairing.PasswordGenerator
 import com.example.esp32pairingapp.ui.theme.ESP32PairingAppTheme
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
@@ -30,6 +30,7 @@ private const val BASE_URL = "http://192.168.10.1"
 private const val HEALTH_URL = "$BASE_URL/api/health"
 private const val NEWSSID_URL = "$BASE_URL/api/newssid"
 private const val NEWPASS_URL = "$BASE_URL/api/newpass"
+private const val ENCRYPTEDPASS_URL = "$BASE_URL/api/encryptedpass"
 private const val WIFISTATUS_URL = "$BASE_URL/api/wifistatus"
 
 private const val POLL_INTERVAL_MS = 750L
@@ -96,7 +97,7 @@ class MainActivity : ComponentActivity() {
 fun WifiManualScreen(httpClient: EspHttpClient) {
     var status by remember { mutableStateOf("Manual connection mode:\n" +
             "1) Connect your phone to the ESP32 Wi-Fi in Android Settings\n" +
-            "2) Return here and tap “Test Connection”") }
+            "2) Return here and tap \"Test Connection\"") }
     var showWifiDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -176,11 +177,11 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text =
-                            "• Step 1: Open Android Wi-Fi settings and connect to the ESP32 network\n" +
+                        "• Step 1: Open Android Wi-Fi settings and connect to the ESP32 network\n" +
                                 "• Step 2: Return to this app\n" +
-                                "• Step 3: Tap “Test Connection”\n" +
-                                "• Step 4: Tap “Send Wi-Fi Credentials” to send your home Wi-Fi info\n\n" +
-                                "If “Test Connection” fails, you’re probably not connected to ESP32 Wi-Fi.",
+                                "• Step 3: Tap \"Test Connection\"\n" +
+                                "• Step 4: Tap \"Send Wi-Fi Credentials\" to send your home Wi-Fi info\n\n" +
+                                "If \"Test Connection\" fails, you're probably not connected to ESP32 Wi-Fi.",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -222,6 +223,16 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
                         httpClient.post(
                             url = NEWPASS_URL,
                             body = passBody,
+                            contentType = "application/x-www-form-urlencoded",
+                            network = null
+                        )
+
+                        // Generate a random alphanumeric password and send it to the ESP32
+                        val generatedPass = PasswordGenerator.generate()
+                        val encodedGenPass = URLEncoder.encode(generatedPass, "UTF-8")
+                        httpClient.post(
+                            url = ENCRYPTEDPASS_URL,
+                            body = "pass=$encodedGenPass",
                             contentType = "application/x-www-form-urlencoded",
                             network = null
                         )
