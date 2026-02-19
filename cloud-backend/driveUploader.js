@@ -5,10 +5,12 @@ import { getAuthorizedClient } from "./googleAuth.js";
 import { Event } from "./models/Event.js";
 
 export async function uploadToDrive(filePath, deviceId, type = "video") {
+  const filename = path.basename(filePath);
+  console.log(`📤 [Drive] Uploading: ${filename} (deviceId=${deviceId}, type=${type})`);
+
   const auth = getAuthorizedClient();
   const drive = google.drive({ version: "v3", auth });
 
-  const filename = path.basename(filePath);
   const mimeType = type === "thumbnail" ? "image/jpeg" : "video/mp4";
 
   const response = await drive.files.create({
@@ -31,11 +33,18 @@ export async function uploadToDrive(filePath, deviceId, type = "video") {
     },
   });
 
+  console.log(`✅ [Drive] Uploaded: ${filename} → Drive fileId=${response.data.id}, link=${response.data.webViewLink || "(no link)"}`);
   return response.data;
 }
 
 export async function handleEventUpload(filePath, deviceId, type) {
-  const driveData = await uploadToDrive(filePath, deviceId, type);
+  let driveData;
+  try {
+    driveData = await uploadToDrive(filePath, deviceId, type);
+  } catch (err) {
+    console.error(`❌ [Drive] Upload failed: ${path.basename(filePath)} — ${err.message}`);
+    throw err;
+  }
   
   // Find or create event record
   let event;

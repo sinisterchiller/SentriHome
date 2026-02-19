@@ -5,22 +5,25 @@ import {
   getNextPending,
   updateEvent,
 } from "./queueManager.js";
-
-const CLOUD_UPLOAD_URL = "http://localhost:3001/api/events/upload";
+import { getCloudUploadUrl, getConfig } from "./config.js";
 
 export function startUploader() {
   setInterval(async () => {
+    const CLOUD_UPLOAD_URL = getCloudUploadUrl();
     const event = getNextPending();
     if (!event) return;
 
     try {
       updateEvent(event.id, { status: "uploading" });
 
+      const deviceId = getConfig().DEVICE_ID;
+
       // Upload thumbnail first
       if (event.thumbnailPath && fs.existsSync(event.thumbnailPath)) {
         const thumbForm = new FormData();
         thumbForm.append("file", fs.createReadStream(event.thumbnailPath));
         thumbForm.append("type", "thumbnail");
+        thumbForm.append("deviceId", deviceId);
 
         await axios.post(CLOUD_UPLOAD_URL, thumbForm, {
           headers: thumbForm.getHeaders(),
@@ -32,6 +35,7 @@ export function startUploader() {
         const videoForm = new FormData();
         videoForm.append("file", fs.createReadStream(event.videoPath));
         videoForm.append("type", "video");
+        videoForm.append("deviceId", deviceId);
 
         await axios.post(CLOUD_UPLOAD_URL, videoForm, {
           headers: videoForm.getHeaders(),

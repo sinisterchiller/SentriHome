@@ -6,10 +6,13 @@ import fs from "fs";
 import path from "path";
 import multer from "multer";
 
+import { google } from "googleapis";
+
 import {
   createOAuthClient,
   getAuthUrl,
   handleOAuthCallback,
+  getAuthorizedClient,
 } from "./googleAuth.js";
 
 import { uploadToDrive, handleEventUpload } from "./driveUploader.js";
@@ -109,8 +112,12 @@ app.post("/api/events/upload", upload.single("file"), async (req, res) => {
   const type = req.body.type || "video";
 
   if (!req.file) {
+    console.warn("⚠️ [Upload] Request missing file (deviceId=%s)", deviceId);
     return res.status(400).json({ error: "Missing file" });
   }
+
+  const filename = req.file.originalname || path.basename(req.file.path);
+  console.log("📥 [Upload] Received: %s (deviceId=%s, type=%s, size=%d)", filename, deviceId, type, req.file.size);
 
   try {
     const event = await handleEventUpload(req.file.path, deviceId, type);
@@ -118,12 +125,16 @@ app.post("/api/events/upload", upload.single("file"), async (req, res) => {
     // OPTIONAL: delete local copy after upload
     fs.unlinkSync(req.file.path);
 
+    console.log("✅ [Upload] Success: %s → eventId=%s, driveFileId=%s", filename, event._id, event.driveFileId);
     res.json({
       status: "ok",
       event,
     });
   } catch (err) {
-    console.error("❌ Upload failed:", err.message);
+    console.error("❌ [Upload] Failed: %s — %s", filename, err.message);
+    if (req.file?.path && fs.existsSync(req.file.path)) {
+      try { fs.unlinkSync(req.file.path); } catch (_) {}
+    }
     res.status(500).json({ error: "Upload failed" });
   }
 });
@@ -158,6 +169,91 @@ app.get("/api/events", async (_req, res) => {
   }));
 
   res.json(formattedEvents);
+});
+
+/* =========================
+   Serve clips from Google Drive
+========================= */
+
+async function streamFileFromDrive(driveFileId, res, mimeType, filename) {
+  const auth = getAuthorizedClient();
+  const drive = google.drive({ version: "v3", auth });
+
+  const response = await drive.files.get(
+    { fileId: driveFileId, alt: "media" },
+    { responseType: "stream" }
+  );
+
+  res.setHeader("Content-Type", mimeType);
+  if (filename) {
+    res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+  }
+  response.data.pipe(res);
+}
+
+app.get("/api/clips/:eventId", async (req, res) => {
+  const eventId = req.params.eventId?.trim();
+  console.log("🎬 [Clip] Request: eventId=%s", eventId || "(empty)");
+  try {
+    if (!eventId) return res.status(400).json({ error: "Invalid event ID" });
+    const event = await Event.findById(eventId);
+    if (!event) {
+      console.warn("⚠️ [Clip] Not found: %s", eventId);
+      return res.status(404).json({ error: "Event not found" });
+    }
+    if (!event.driveFileId || event.driveFileId === "pending") {
+      console.warn("⚠️ [Clip] Video not available: %s (driveFileId=%s)", eventId, event.driveFileId);
+      return res.status(404).json({ error: "Video not yet available" });
+    }
+
+    console.log("✅ [Clip] Serving: eventId=%s, driveFileId=%s", eventId, event.driveFileId);
+    await streamFileFromDrive(
+      event.driveFileId,
+      res,
+      "video/mp4",
+      event.filename || "clip.mp4"
+    );
+  } catch (err) {
+    if (res.headersSent) return;
+    if (err.code === 404 || err.message?.includes("404")) {
+      return res.status(404).json({ error: "Clip not found" });
+    }
+    console.error("❌ [Clip] Serve failed: eventId=%s — %s", eventId, err.message);
+    res.status(500).json({ error: "Failed to serve clip" });
+  }
+});
+
+app.get("/api/clips/:eventId/thumbnail", async (req, res) => {
+  const eventId = req.params.eventId?.trim();
+  console.log("🖼 [Thumbnail] Request: eventId=%s", eventId || "(empty)");
+  try {
+    if (!eventId) return res.status(400).json({ error: "Invalid event ID" });
+    const event = await Event.findById(eventId);
+    if (!event) {
+      console.warn("⚠️ [Thumbnail] Event not found: %s", eventId);
+      return res.status(404).json({ error: "Event not found" });
+    }
+    const thumbnailId = event.thumbnailDriveId;
+    if (!thumbnailId) {
+      console.warn("⚠️ [Thumbnail] Not available: %s", eventId);
+      return res.status(404).json({ error: "Thumbnail not available" });
+    }
+
+    console.log("✅ [Thumbnail] Serving: eventId=%s, driveFileId=%s", eventId, thumbnailId);
+    await streamFileFromDrive(
+      thumbnailId,
+      res,
+      "image/jpeg",
+      "thumbnail.jpg"
+    );
+  } catch (err) {
+    if (res.headersSent) return;
+    if (err.code === 404 || err.message?.includes("404")) {
+      return res.status(404).json({ error: "Thumbnail not found" });
+    }
+    console.error("❌ [Thumbnail] Serve failed: eventId=%s — %s", eventId, err.message);
+    res.status(500).json({ error: "Failed to serve thumbnail" });
+  }
 });
 
 /* =========================
@@ -207,6 +303,6 @@ process.on("unhandledRejection", (reason) => {
 ========================= */
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0',() => {
   console.log(`☁️ Cloud backend running at http://localhost:${PORT}`);
 });
