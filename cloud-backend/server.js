@@ -287,6 +287,6 @@ process.on("unhandledRejection", (reason) => {
 ========================= */
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0',() => {
   console.log(`☁️ Cloud backend running at http://localhost:${PORT}`);
 });
