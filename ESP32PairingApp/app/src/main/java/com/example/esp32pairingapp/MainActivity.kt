@@ -22,9 +22,11 @@ import androidx.core.content.ContextCompat
 import com.example.esp32pairingapp.network.NetworkBinder
 import com.example.esp32pairingapp.ui.theme.ESP32PairingAppTheme
 import com.example.esp32pairingapp.wifi.WifiConnector
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
@@ -159,7 +161,7 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
                             status = "Connected ✅"
                         }
                     } catch (e: Exception) {
-                        status = "Failed ❌: ${e.message}"
+                        status = "Failed to connect to ESP32. Ensure ESP32 WiFi (${ESP32_DEFAULT_SSID_FALLBACK}) is on and in range."
                         network = null
                     }
                 }
@@ -183,13 +185,15 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
 
                     try {
                         val response = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                            httpClient.get(com.example.esp32pairingapp.network.ApiConfig.getHealthUrl(), testNetwork)
+                            withContext(Dispatchers.IO) {
+                                httpClient.get(com.example.esp32pairingapp.network.ApiConfig.getHealthUrl(), testNetwork)
+                            }
                         } else {
                             "HTTP test requires Android 5.0+"
                         }
                         status = "HTTP test succeeded ✅\nReceived ${response.length} bytes"
                     } catch (e: Exception) {
-                        status = "HTTP test failed ❌: ${e.message}"
+                        status = "HTTP test failed. Ensure you're connected to ESP32 WiFi and ESP has /api/health endpoint."
                     }
                 }
             },
@@ -292,23 +296,27 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
                             // Send SSID to /api/newssid
                             val ssidBody = "SSID=$encodedSsid"
                             Log.d("WifiSetup", "Sending SSID: $ssidBody")
-                            val ssidResponse = httpClient.post(
-                                com.example.esp32pairingapp.network.ApiConfig.getNewSsidUrl(),
-                                ssidBody,
-                                "application/x-www-form-urlencoded",
-                                testNetwork
-                            )
+                            val ssidResponse = withContext(Dispatchers.IO) {
+                                httpClient.post(
+                                    com.example.esp32pairingapp.network.ApiConfig.getNewSsidUrl(),
+                                    ssidBody,
+                                    "application/x-www-form-urlencoded",
+                                    testNetwork
+                                )
+                            }
                             Log.d("WifiSetup", "SSID response: $ssidResponse")
 
                             // Send password to /api/newpass
                             val passBody = "pass=$encodedPassword"
                             Log.d("WifiSetup", "Sending password: pass=***")
-                            val passResponse = httpClient.post(
-                                com.example.esp32pairingapp.network.ApiConfig.getNewPassUrl(),
-                                passBody,
-                                "application/x-www-form-urlencoded",
-                                testNetwork
-                            )
+                            val passResponse = withContext(Dispatchers.IO) {
+                                httpClient.post(
+                                    com.example.esp32pairingapp.network.ApiConfig.getNewPassUrl(),
+                                    passBody,
+                                    "application/x-www-form-urlencoded",
+                                    testNetwork
+                                )
+                            }
                             Log.d("WifiSetup", "Password response: $passResponse")
 
                             status = "Credentials sent ✅\nPolling for WiFi connection..."
@@ -330,7 +338,7 @@ fun WifiConnectTestScreen(connector: WifiConnector) {
                         }
                     } catch (e: Exception) {
                         Log.e("WifiSetup", "Failed to send credentials", e)
-                        status = "Failed to send credentials ❌: ${e.message}"
+                        status = "Failed to send credentials. Check ESP32 WiFi connection and that ESP exposes /api/newssid and /api/newpass."
                         showWifiDialog = false
                     }
                 }
@@ -371,7 +379,7 @@ private fun RemoteThumbnail(
         failed = false
         bitmap = null
         bitmap = try {
-            fetchBitmap(url)
+            withContext(Dispatchers.IO) { fetchBitmap(url) }
         } catch (_: Exception) {
             failed = true
             null
@@ -457,10 +465,10 @@ fun StreamPage(
             try {
                 val piUrl = com.example.esp32pairingapp.network.ApiConfig.getPiHealthUrl()
                 Log.d("StreamPage", "Checking Pi at: $piUrl")
-                httpClient.get(piUrl, null)
+                withContext(Dispatchers.IO) { httpClient.get(piUrl, null) }
                 piBackendStatus = "✅ Pi backend reachable at $piUrl"
             } catch (e: Exception) {
-                piBackendStatus = "❌ Pi NOT reachable: ${e.message}. Tap Edit Pi to set IP (port 4000)."
+                piBackendStatus = formatConnectionError(e, "Pi", com.example.esp32pairingapp.network.ApiConfig.getPiHealthUrl())
                 Log.e("StreamPage", "Pi check failed", e)
             }
         }
@@ -567,12 +575,14 @@ fun StreamPage(
                                     // POST to Pi backend (use null = default network to reach Pi on LAN)
                                     val url = com.example.esp32pairingapp.network.ApiConfig.getStartStreamUrl()
                                     Log.d("StreamPage", "Start stream POST to: $url")
-                                    val response = httpClient.post(
-                                        url,
-                                        """{"type":"webcam","value":""}""",
-                                        "application/json",
-                                        null
-                                    )
+                                    val response = withContext(Dispatchers.IO) {
+                                        httpClient.post(
+                                            url,
+                                            """{"type":"webcam","value":""}""",
+                                            "application/json",
+                                            null
+                                        )
+                                    }
 
                                     Log.d("StreamPage", "Start response: $response")
 
@@ -587,7 +597,7 @@ fun StreamPage(
                                         errorMessage = "⚠️ Start failed: ${json.optString("message", "Unknown error")}"
                                     }
                                 } catch (e: Exception) {
-                                    errorMessage = "❌ Failed to start stream: ${e.message}"
+                                    errorMessage = formatConnectionError(e, "Pi", com.example.esp32pairingapp.network.ApiConfig.getStartStreamUrl())
                                     Log.e("StreamPage", "Start stream error", e)
                                 } finally {
                                     isLoadingStream = false
@@ -608,12 +618,14 @@ fun StreamPage(
                                 errorMessage = null
                                 try {
                                     // POST to Pi backend (use null = default network)
-                                    val response = httpClient.post(
-                                        com.example.esp32pairingapp.network.ApiConfig.getStopStreamUrl(),
-                                        "",
-                                        "application/json",
-                                        null
-                                    )
+                                    val response = withContext(Dispatchers.IO) {
+                                        httpClient.post(
+                                            com.example.esp32pairingapp.network.ApiConfig.getStopStreamUrl(),
+                                            "",
+                                            "application/json",
+                                            null
+                                        )
+                                    }
 
                                     Log.d("StreamPage", "Stop response: $response")
 
@@ -621,7 +633,7 @@ fun StreamPage(
                                     streamUrl = null
                                     errorMessage = "⏹️ Stream stopped"
                                 } catch (e: Exception) {
-                                    errorMessage = "❌ Failed to stop stream: ${e.message}"
+                                    errorMessage = formatConnectionError(e, "Pi", com.example.esp32pairingapp.network.ApiConfig.getStopStreamUrl())
                                     Log.e("StreamPage", "Stop stream error", e)
                                 } finally {
                                     isLoadingStream = false
@@ -650,12 +662,14 @@ fun StreamPage(
                                 // POST to Pi backend (use null = default network to reach Pi on LAN)
                                 val motionUrl = com.example.esp32pairingapp.network.ApiConfig.getMotionTriggerUrl()
                                 Log.d("StreamPage", "Motion POST to: $motionUrl")
-                                val response = httpClient.post(
-                                    motionUrl,
-                                    "",
-                                    "application/json",
-                                    null
-                                )
+                                val response = withContext(Dispatchers.IO) {
+                                    httpClient.post(
+                                        motionUrl,
+                                        "",
+                                        "application/json",
+                                        null
+                                    )
+                                }
 
                                 Log.d("StreamPage", "Motion response: $response")
                                 val msg = runCatching { JSONObject(response).optString("message", "") }.getOrNull() ?: ""
@@ -670,10 +684,12 @@ fun StreamPage(
                                 // Auto-refresh clips after motion
                                 isLoadingClips = true
                                 try {
-                                    val clipsResponse = httpClient.get(
-                                        com.example.esp32pairingapp.network.ApiConfig.getClipsUrl(),
-                                        network
-                                    )
+                                    val clipsResponse = withContext(Dispatchers.IO) {
+                                        httpClient.get(
+                                            com.example.esp32pairingapp.network.ApiConfig.getClipsUrl(),
+                                            null
+                                        )
+                                    }
                                     val clipsJson = JSONObject(clipsResponse)
                                     val clipsArray = clipsJson.optJSONArray("clips") ?: JSONArray()
 
@@ -694,7 +710,7 @@ fun StreamPage(
                                     isLoadingClips = false
                                 }
                             } catch (e: Exception) {
-                                errorMessage = "❌ Failed to trigger motion: ${e.message}"
+                                errorMessage = formatConnectionError(e, "Pi", com.example.esp32pairingapp.network.ApiConfig.getMotionTriggerUrl())
                                 Log.e("StreamPage", "Motion trigger error", e)
                             } finally {
                                 isLoadingStream = false
@@ -742,10 +758,12 @@ fun StreamPage(
                             try {
                                 // GET from Cloud backend: /api/events
                                 // Use null network so requests use default (home WiFi) to reach cloud
-                                val response = httpClient.get(
-                                    com.example.esp32pairingapp.network.ApiConfig.getEventsUrl(),
-                                    null
-                                )
+                                val response = withContext(Dispatchers.IO) {
+                                    httpClient.get(
+                                        com.example.esp32pairingapp.network.ApiConfig.getEventsUrl(),
+                                        null
+                                    )
+                                }
 
                                 Log.d("StreamPage", "Events response: ${response.take(500)}")
 
@@ -785,7 +803,7 @@ fun StreamPage(
 
                                 errorMessage = "✅ Loaded ${clips.size} events"
                             } catch (e: Exception) {
-                                errorMessage = "❌ Failed to load events: ${e.message}"
+                                errorMessage = formatConnectionError(e, "Cloud", com.example.esp32pairingapp.network.ApiConfig.getEventsUrl())
                                 Log.e("StreamPage", "Events error", e)
                             } finally {
                                 isLoadingClips = false
@@ -1066,6 +1084,26 @@ fun WifiCredentialsDialog(
 }
 
 /**
+ * Converts connection exceptions into clear, actionable error messages.
+ */
+private fun formatConnectionError(e: Exception, target: String, url: String): String {
+    val msg = (e.message ?: "").lowercase()
+    val hint = when {
+        msg.contains("failed to connect") || msg.contains("connection refused") ->
+            "Check: 1) Phone on same WiFi as $target. 2) $target backend running. 3) Tap Edit ${if (target == "Pi") "Pi" else "Cloud"} to verify IP."
+        msg.contains("network is unreachable") || msg.contains("no route to host") ->
+            "Phone can't reach $target. Ensure phone is on same WiFi (e.g. 192.168.1.x)."
+        msg.contains("timeout") || msg.contains("timed out") ->
+            "Connection timed out. Is $target running? Check firewall allows port."
+        msg.contains("unknown host") || msg.contains("unable to resolve") ->
+            "Invalid host. Tap Edit ${if (target == "Pi") "Pi" else "Cloud"} and enter correct IP (e.g. 192.168.1.66)."
+        else ->
+            "Tap Edit ${if (target == "Pi") "Pi" else "Cloud"} to verify IP. Use IP only (no slash), e.g. 192.168.1.66."
+    }
+    return "❌ Can't reach $target at $url\n\n$hint"
+}
+
+/**
  * Polls /api/wifistatus until ESP32 reports connected.
  */
 private suspend fun pollWifiStatus(
@@ -1080,7 +1118,9 @@ private suspend fun pollWifiStatus(
     while (scope.isActive && (System.currentTimeMillis() - startTime) < POLL_TIMEOUT_MS) {
         pollCount++
         try {
-            val response = httpClient.get(com.example.esp32pairingapp.network.ApiConfig.getWifiStatusUrl(), network)
+            val response = withContext(Dispatchers.IO) {
+                httpClient.get(com.example.esp32pairingapp.network.ApiConfig.getWifiStatusUrl(), network)
+            }
             val json = JSONObject(response)
             val connected = json.optString("connected", "").lowercase() == "true"
 
