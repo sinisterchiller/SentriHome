@@ -4,17 +4,16 @@ import axios from "axios";
 import FormData from "form-data";
 
 import { loadPendingEvents, updateEvent } from "./eventStore.js";
+import { getConfig, getCloudUploadUrl } from "./config.js";
 
-const CLOUD_URL = "http://localhost:3001/api/events/upload";
 const EVENTS_DIR = "events";
-const UPLOAD_INTERVAL_MS = 30_000;
-const MAX_ATTEMPTS = 5;
-const DELETE_AFTER_UPLOAD = true;
 
 export function startUploader() {
   console.log("☁️ Pi uploader started");
 
   setInterval(async () => {
+    const { UPLOAD_INTERVAL_MS, MAX_ATTEMPTS, DELETE_AFTER_UPLOAD, DEVICE_ID } = getConfig();
+    const CLOUD_URL = getCloudUploadUrl();
     const pending = loadPendingEvents();
 
     for (const event of pending) {
@@ -38,7 +37,8 @@ export function startUploader() {
 
         const form = new FormData();
         form.append("file", fs.createReadStream(videoPath));
-        form.append("cameraId", data.cameraId);
+        form.append("deviceId", DEVICE_ID);
+        form.append("cameraId", data.cameraId || DEVICE_ID);
         form.append("timestamp", data.timestamp);
 
         await axios.post(CLOUD_URL, form, {
@@ -58,5 +58,5 @@ export function startUploader() {
         console.error("❌ Upload failed:", data.file, err.message);
       }
     }
-  }, UPLOAD_INTERVAL_MS);
+  }, getConfig().UPLOAD_INTERVAL_MS);
 }

@@ -2,12 +2,9 @@ import fs from "fs";
 import path from "path";
 import FormData from "form-data";
 import axios from "axios";
+import { getConfig, getCloudUploadUrl } from "./config.js";
 
 const EVENTS_DIR = "events";
-const CLOUD_BASE_URL = process.env.CLOUD_BASE_URL || "http://localhost:3001";
-const UPLOAD_ENDPOINT = process.env.CLOUD_UPLOAD_ENDPOINT || "/api/events/upload";
-const DEVICE_ID = process.env.DEVICE_ID || "pi-dev-001";
-const POLL_MS = Number(process.env.UPLOAD_POLL_MS || 8000);
 const MAX_RETRIES = 3;
 
 let running = false;
@@ -27,9 +24,10 @@ function listEventFiles() {
 }
 
 async function uploadFile(filePath) {
-  const url = `${CLOUD_BASE_URL}${UPLOAD_ENDPOINT}`;
+  const url = getCloudUploadUrl();
+  const { DEVICE_ID } = getConfig();
   let retries = 0;
-  
+
   while (retries < MAX_RETRIES) {
     try {
       const form = new FormData();
@@ -70,10 +68,11 @@ export function startUploadQueue() {
   if (running) return;
   running = true;
 
+  const { UPLOAD_POLL_MS: POLL_MS } = getConfig();
   fs.mkdirSync(EVENTS_DIR, { recursive: true });
 
   console.log(
-    `☁️ Upload queue started: polling every ${POLL_MS}ms -> ${CLOUD_BASE_URL}${UPLOAD_ENDPOINT}` 
+    `☁️ Upload queue started: polling every ${POLL_MS}ms -> ${getCloudUploadUrl()}`
   );
 
   setInterval(async () => {
@@ -114,5 +113,5 @@ export function startUploadQueue() {
         console.error("⚠️ Failed to unlock file:", e.message);
       }
     }
-  }, POLL_MS);
+  }, getConfig().UPLOAD_POLL_MS);
 }
