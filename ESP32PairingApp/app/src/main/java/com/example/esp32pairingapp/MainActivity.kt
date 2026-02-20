@@ -41,6 +41,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import androidx.annotation.RequiresApi
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.collections.isNotEmpty
