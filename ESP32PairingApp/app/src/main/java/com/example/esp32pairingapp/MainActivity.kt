@@ -300,6 +300,7 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
                                 status = "ESP32 connected to home WiFi ✅\nEncrypted pass sent.\nSetup complete!"
                             }
                         )
+                        //hello
                     } catch (e: Exception) {
                         showWifiDialog = false
                         status =
