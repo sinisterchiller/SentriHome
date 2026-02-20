@@ -17,5 +17,6 @@
     "--query-driver=**",
     "--compile-commands-dir=/Users/anuragkoushik/Desktop/Deployment/HomeSecurity-local/ESP32_Files/vscodeESPIDF/wroom-sensor-firmware5.5.2/build"
   ],
-  "idf.flashType": "UART"
+  "idf.flashType": "UART",
+  "idf.currentSetup": "/Users/anuragkoushik/Desktop/Deployment/HomeSecurity-local/v5.5.2/esp-idf"
 }

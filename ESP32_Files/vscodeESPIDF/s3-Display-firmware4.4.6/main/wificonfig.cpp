@@ -52,7 +52,7 @@ bool wifiapstart(){
 
   const int maxTries = 3;
   for (int i = 0; i < maxTries; i++) {
-    if (WiFi.softAP("ESP32_Master_Config", "12345678")) {
+    if (WiFi.softAP("ESP32_Master_Config", "12345678", 11)) {
       // Wait until AP actually has an IP (ready to serve)
       unsigned long start = millis();
       while (WiFi.softAPIP()[0] == 0 && (millis() - start < 5000)) {
