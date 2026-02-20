@@ -18,13 +18,15 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.esp32pairingapp.network.CloudBackendPrefs
 import com.example.esp32pairingapp.network.EspHttpClient
+import com.example.esp32pairingapp.clips.SavedClipsContent
+import com.example.esp32pairingapp.clips.SavedClipsScreen
+import com.example.esp32pairingapp.clips.VideoClip
 import com.example.esp32pairingapp.pairing.PasswordGenerator
 import com.example.esp32pairingapp.network.PiBackendPrefs
 import com.example.esp32pairingapp.ui.theme.ESP32PairingAppTheme
@@ -37,13 +39,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
-import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.net.Uri
 import androidx.annotation.RequiresApi
-import java.net.HttpURLConnection
-import java.net.URL
 import kotlin.collections.isNotEmpty
 import kotlin.collections.take
 
@@ -118,6 +114,7 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
             "2) Return here and tap \"Test Connection\"") }
     var showWifiDialog by remember { mutableStateOf(false) }
     var showStreamPage by remember { mutableStateOf(false) }
+    var showSavedClipsScreen by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     if (showStreamPage) {
@@ -125,6 +122,13 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
             network = null,
             httpClient = httpClient,
             onBack = { showStreamPage = false }
+        )
+        return
+    }
+    if (showSavedClipsScreen) {
+        SavedClipsScreen(
+            httpClient = httpClient,
+            onBack = { showSavedClipsScreen = false }
         )
         return
     }
@@ -204,6 +208,15 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
             Text("View Stream & Clips")
         }
 
+        Spacer(Modifier.height(8.dp))
+
+        Button(
+            onClick = { showSavedClipsScreen = true },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Watch saved clips")
+        }
+
         Spacer(Modifier.height(24.dp))
 
         Card(
@@ -264,26 +277,29 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
                             )
                         }
 
-                        // Generate a random alphanumeric password and send it to the ESP32
-                        val generatedPass = PasswordGenerator.generate()
-                        val encodedGenPass = URLEncoder.encode(generatedPass, "UTF-8")
-                        httpClient.post(
-                            url = ENCRYPTEDPASS_URL,
-                            body = "pass=$encodedGenPass",
-                            contentType = "application/x-www-form-urlencoded",
-                            network = null
-                        )
-
                         showWifiDialog = false
                         status = "Credentials sent ✅\nConnecting ESP32 to your home Wi-Fi…"
 
-                        pollWifiStatus(httpClient) { isConnected, pollStatus ->
-                            status = if (isConnected) {
-                                "ESP32 connected to home WiFi ✅\nSetup complete!"
-                            } else {
-                                pollStatus
+                        pollWifiStatus(
+                            httpClient = httpClient,
+                            onStatus = { isConnected, pollStatus ->
+                                if (!isConnected) status = pollStatus
+                            },
+                            onConnected = {
+                                // When ESP32 reports connected:true, send encrypted password to /api/encryptedpass
+                                val generatedPass = PasswordGenerator.generate()
+                                val encodedGenPass = URLEncoder.encode(generatedPass, "UTF-8")
+                                withContext(Dispatchers.IO) {
+                                    httpClient.post(
+                                        url = ENCRYPTEDPASS_URL,
+                                        body = "pass=$encodedGenPass",
+                                        contentType = "application/x-www-form-urlencoded",
+                                        network = null
+                                    )
+                                }
+                                status = "ESP32 connected to home WiFi ✅\nEncrypted pass sent.\nSetup complete!"
                             }
-                        }
+                        )
                     } catch (e: Exception) {
                         showWifiDialog = false
                         status =
@@ -296,70 +312,6 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
     }
 }
 
-// --- Thumbnail helpers (simple, no extra deps) ---
-private fun fetchBitmap(url: String): Bitmap? {
-    val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-        connectTimeout = 10_000
-        readTimeout = 10_000
-        instanceFollowRedirects = true
-    }
-
-    return try {
-        if (connection.responseCode in 200..299) {
-            connection.inputStream.use { BitmapFactory.decodeStream(it) }
-        } else {
-            null
-        }
-    } finally {
-        connection.disconnect()
-    }
-}
-
-@Composable
-private fun RemoteThumbnail(
-    url: String,
-    modifier: Modifier = Modifier,
-    contentDescription: String? = null
-) {
-    var bitmap by remember(url) { mutableStateOf<Bitmap?>(null) }
-    var failed by remember(url) { mutableStateOf(false) }
-
-    LaunchedEffect(url) {
-        failed = false
-        bitmap = null
-        bitmap = try {
-            withContext(Dispatchers.IO) { fetchBitmap(url) }
-        } catch (_: Exception) {
-            failed = true
-            null
-        }
-    }
-
-    when {
-        bitmap != null -> {
-            androidx.compose.foundation.Image(
-                bitmap = bitmap!!.asImageBitmap(),
-                contentDescription = contentDescription,
-                modifier = modifier
-            )
-        }
-        failed -> {
-            Surface(modifier = modifier, color = MaterialTheme.colorScheme.surfaceVariant) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                    Text("No thumbnail", style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        }
-        else -> {
-            Surface(modifier = modifier, color = MaterialTheme.colorScheme.surfaceVariant) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                    CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
-                }
-            }
-        }
-    }
-}
-
 @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
 @Composable
 fun StreamPage(
@@ -368,10 +320,8 @@ fun StreamPage(
     onBack: () -> Unit
 ) {
     var isLoadingStream by remember { mutableStateOf(false) }
-    var isLoadingClips by remember { mutableStateOf(false) }
     var isStreaming by remember { mutableStateOf(false) }
     var streamUrl by remember { mutableStateOf<String?>(null) }
-    var clips by remember { mutableStateOf<List<VideoClip>>(emptyList()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var piBackendStatus by remember { mutableStateOf<String?>(null) }
 
@@ -625,39 +575,9 @@ fun StreamPage(
                                 if (msg.contains("cloud backend", ignoreCase = true)) {
                                     errorMessage = "❌ Wrong backend! Motion hit Cloud (3001) not Pi (4000). Tap Edit Pi and set Pi IP (port 4000)."
                                 } else {
-                                    errorMessage = "📸 Motion triggered! Clip will be saved to Google Drive"
+                                    errorMessage = "📸 Motion triggered! Clip will be saved to Google Drive. Tap \"Load Clips from Drive\" below to refresh the list."
                                 }
-
-                                // Wait a bit then refresh clips
                                 delay(2000)
-                                // Auto-refresh clips after motion
-                                isLoadingClips = true
-                                try {
-                                    val clipsResponse = withContext(Dispatchers.IO) {
-                                        httpClient.get(
-                                            com.example.esp32pairingapp.network.ApiConfig.getClipsUrl(),
-                                            null
-                                        )
-                                    }
-                                    val clipsJson = JSONObject(clipsResponse)
-                                    val clipsArray = clipsJson.optJSONArray("clips") ?: JSONArray()
-
-                                    clips = (0 until clipsArray.length()).map { i ->
-                                        val clipObj = clipsArray.getJSONObject(i)
-                                        VideoClip(
-                                            id = clipObj.optString("_id", ""),
-                                            filename = clipObj.optString("filename", "clip_$i.mp4"),
-                                            timestamp = clipObj.optString("createdAt", ""),
-                                            deviceId = clipObj.optString("deviceId", "unknown"),
-                                            thumbnailUrl = clipObj.optJSONObject("thumbnail")?.optString("webViewLink"),
-                                            videoUrl = clipObj.optJSONObject("video")?.optString("webViewLink")
-                                        )
-                                    }
-                                } catch (e: Exception) {
-                                    Log.e("StreamPage", "Clips refresh error", e)
-                                } finally {
-                                    isLoadingClips = false
-                                }
                             } catch (e: Exception) {
                                 errorMessage = formatConnectionError(e, "Pi", com.example.esp32pairingapp.network.ApiConfig.getMotionTriggerUrl())
                                 Log.e("StreamPage", "Motion trigger error", e)
@@ -688,162 +608,11 @@ fun StreamPage(
 
         Spacer(Modifier.height(16.dp))
 
-        // Recorded Clips Section
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer
-            )
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("Recorded Clips (Google Drive)", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
-
-                Button(
-                    onClick = {
-                        scope.launch {
-                            isLoadingClips = true
-                            errorMessage = null
-                            try {
-                                // GET from Cloud backend: /api/events
-                                // Use null network so requests use default (home WiFi) to reach cloud
-                                val response = withContext(Dispatchers.IO) {
-                                    httpClient.get(
-                                        com.example.esp32pairingapp.network.ApiConfig.getEventsUrl(),
-                                        null
-                                    )
-                                }
-
-                                Log.d("StreamPage", "Events response: ${response.take(500)}")
-
-                                // Cloud backend returns raw array [{...}]. Also support { events: [...] } or { clips: [...] }.
-                                val eventsArray: JSONArray = runCatching {
-                                    if (response.trimStart().startsWith("[")) {
-                                        JSONArray(response)
-                                    } else {
-                                        val json = JSONObject(response)
-                                        when {
-                                            json.has("events") -> json.optJSONArray("events") ?: JSONArray()
-                                            json.has("clips") -> json.optJSONArray("clips") ?: JSONArray()
-                                            else -> JSONArray()
-                                        }
-                                    }
-                                }.getOrElse {
-                                    Log.e("StreamPage", "Failed to parse events", it)
-                                    JSONArray()
-                                }
-
-                                clips = (0 until eventsArray.length()).map { i ->
-                                    val eventObj = eventsArray.getJSONObject(i)
-                                    val id = eventObj.optString("_id", eventObj.optString("id", ""))
-                                    val filename = eventObj.optString("filename", "event_$i.mp4")
-                                    val timestamp = eventObj.optString("createdAt", eventObj.optString("timestamp", ""))
-                                    val deviceId = eventObj.optString("deviceId", "unknown")
-
-                                    VideoClip(
-                                        id = id,
-                                        filename = filename,
-                                        timestamp = timestamp,
-                                        deviceId = deviceId,
-                                        thumbnailUrl = if (id.isNotBlank()) com.example.esp32pairingapp.network.ApiConfig.getClipThumbnailUrl(id) else null,
-                                        videoUrl = if (id.isNotBlank()) com.example.esp32pairingapp.network.ApiConfig.getClipStreamUrl(id) else null
-                                    )
-                                }
-
-                                errorMessage = "✅ Loaded ${clips.size} events"
-                            } catch (e: Exception) {
-                                errorMessage = formatConnectionError(e, "Cloud", com.example.esp32pairingapp.network.ApiConfig.getEventsUrl())
-                                Log.e("StreamPage", "Events error", e)
-                            } finally {
-                                isLoadingClips = false
-                            }
-                        }
-                    },
-                    enabled = !isLoadingClips,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(if (isLoadingClips) "Loading..." else "🔄 Load Clips from Drive")
-                }
-
-                if (clips.isNotEmpty()) {
-                    Spacer(Modifier.height(12.dp))
-
-                    clips.take(20).forEach { clip ->
-                        Spacer(Modifier.height(12.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            val thumb = clip.thumbnailUrl
-                            if (thumb != null) {
-                                Surface(
-                                    shape = MaterialTheme.shapes.medium,
-                                    tonalElevation = 1.dp,
-                                    modifier = Modifier.size(width = 120.dp, height = 80.dp)
-                                ) {
-                                    RemoteThumbnail(
-                                        url = thumb,
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentDescription = "Thumbnail for ${clip.filename}"
-                                    )
-                                }
-                            } else {
-                                Surface(
-                                    shape = MaterialTheme.shapes.medium,
-                                    color = MaterialTheme.colorScheme.surfaceVariant,
-                                    modifier = Modifier.size(width = 120.dp, height = 80.dp)
-                                ) {}
-                            }
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(clip.filename, style = MaterialTheme.typography.bodyMedium)
-                                Text(
-                                    "Device: ${clip.deviceId}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
-                                )
-                                if (clip.timestamp.isNotBlank()) {
-                                    Text(
-                                        clip.timestamp.take(19),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
-                                    )
-                                }
-
-                                Spacer(Modifier.height(6.dp))
-
-                                Button(
-                                    onClick = {
-                                        val url = clip.videoUrl
-                                        if (url.isNullOrBlank()) {
-                                            errorMessage = "❌ No video URL for this event"
-                                            return@Button
-                                        }
-                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                        // Let Android pick the best player (Chrome, VLC, etc.)
-                                        context.startActivity(intent)
-                                    },
-                                    enabled = !clip.videoUrl.isNullOrBlank(),
-                                ) {
-                                    Text("▶️ Play")
-                                }
-                            }
-                        }
-                    }
-
-                    if (clips.size > 20) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "Showing 20 of ${clips.size}…",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.6f)
-                        )
-                    }
-                }
-            }
-        }
+        // Recorded Clips Section (shared with Watch saved clips screen)
+        SavedClipsContent(
+            httpClient = httpClient,
+            onError = { errorMessage = it.ifBlank { null } }
+        )
 
         // Status/Error message display
         // Status/Error message display
@@ -1093,10 +862,12 @@ fun PermissionScreen(
 /**
  * Polls /api/wifistatus every ~750ms until ESP32 returns connected=true.
  * Stops on success, timeout, or coroutine cancellation.
+ * When connected is true, calls onConnected (e.g. to send encrypted pass) then onStatus(true, ...).
  */
 private suspend fun pollWifiStatus(
     httpClient: EspHttpClient,
-    onStatus: (isConnected: Boolean, status: String) -> Unit
+    onStatus: (isConnected: Boolean, status: String) -> Unit,
+    onConnected: suspend () -> Unit = {}
 ) {
     val startTime = System.currentTimeMillis()
 
@@ -1106,7 +877,9 @@ private suspend fun pollWifiStatus(
         (System.currentTimeMillis() - startTime) < POLL_TIMEOUT_MS
     ) {
         try {
-            val response = httpClient.get(WIFISTATUS_URL, network = null)
+            val response = withContext(Dispatchers.IO) {
+                httpClient.get(WIFISTATUS_URL, network = null)
+            }
 
             val json = runCatching { JSONObject(response) }.getOrNull()
 
@@ -1117,6 +890,7 @@ private suspend fun pollWifiStatus(
                 val ip = json.optString("ip", "")
 
                 if (connected) {
+                    onConnected()
                     val extra = if (ip.isNotBlank()) "\nIP: $ip" else ""
                     onStatus(true, "Connected to home Wi-Fi ✅$extra")
                     return
@@ -1143,13 +917,3 @@ private suspend fun pollWifiStatus(
 
     onStatus(false, "Timeout ❌\nESP32 did not confirm home Wi-Fi within ${POLL_TIMEOUT_MS / 1000}s.")
 }
-
-// Model for events/clips displayed in StreamPage
-data class VideoClip(
-    val id: String,
-    val filename: String,
-    val timestamp: String,
-    val deviceId: String,
-    val thumbnailUrl: String?,
-    val videoUrl: String?
-)
