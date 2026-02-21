@@ -1,6 +1,7 @@
 #include "driver/gptimer.h"
 #include "driver/gpio.h"
 #include <stdbool.h>
+#include "api.h"
 //////////////////////////////////////////////////////////////////////
 #include <WiFi.h>
 #include <WiFiUdp.h>
@@ -89,6 +90,7 @@ void setup() {
     delay(400);
   }
 
+  sendalert("alert=" + WiFi.localIP().toString());
   Serial.println("\nConnected!");
   Serial.print("My IP: ");
   Serial.println(WiFi.localIP());
@@ -147,11 +149,11 @@ void loop() {
       while(count < 2){
         Serial.printf("FUCK U FUCK U FUCK U\n");
         if (count == 0){
-          const char* targetIP   = "192.168.1.69"; //to safirs mac
-          const int   udpPort    = 5005;
-          udp.beginPacket(targetIP, udpPort);
-          udp.printf("INTRUDER INTRUDER");
-          udp.endPacket();
+          // const char* targetIP   = "192.168.1.69"; //to safirs mac
+          // const int   udpPort    = 5005;
+          // udp.beginPacket(targetIP, udpPort);
+          // udp.printf("INTRUDER INTRUDER");
+          // udp.endPacket();
           delay(10);
         }
         if (count == 1){
