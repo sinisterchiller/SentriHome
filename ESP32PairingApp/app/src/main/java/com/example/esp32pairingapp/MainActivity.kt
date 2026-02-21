@@ -1,6 +1,7 @@
 package com.example.esp32pairingapp
 
 import android.Manifest
+import kotlinx.coroutines.currentCoroutineContext
 import android.net.Network
 import android.content.pm.PackageManager
 import android.os.Build
@@ -28,6 +29,7 @@ import com.example.esp32pairingapp.clips.SavedClipsContent
 import com.example.esp32pairingapp.clips.SavedClipsScreen
 import com.example.esp32pairingapp.clips.VideoClip
 import com.example.esp32pairingapp.pairing.PasswordGenerator
+import com.example.esp32pairingapp.pairing.OtpGenerator
 import com.example.esp32pairingapp.network.PiBackendPrefs
 import com.example.esp32pairingapp.ui.theme.ESP32PairingAppTheme
 import kotlinx.coroutines.currentCoroutineContext
@@ -42,15 +44,24 @@ import java.net.URLEncoder
 import androidx.annotation.RequiresApi
 import kotlin.collections.isNotEmpty
 import kotlin.collections.take
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.foundation.layout.Arrangement
 
 private const val BASE_URL = "http://192.168.10.1"
 private const val HEALTH_URL = "$BASE_URL/api/health"
 private const val NEWSSID_URL = "$BASE_URL/api/newssid"
 private const val NEWPASS_URL = "$BASE_URL/api/newpass"
 private const val ENCRYPTEDPASS_URL = "$BASE_URL/api/encryptedpass"
+
+private const val ONETIMEPASS_URL = "$BASE_URL/api/onetimepass"
 private const val WIFISTATUS_URL = "$BASE_URL/api/wifistatus"
 private const val POLL_INTERVAL_MS = 750L
 private const val POLL_TIMEOUT_MS = 60_000L
+private const val ARM_URL       = "$BASE_URL/api/arm"
+private const val SCHEDULE_URL  = "$BASE_URL/api/schedule"
+private const val ARMSTATUS_URL = "$BASE_URL/api/armstatus"
 
 class MainActivity : ComponentActivity() {
 
@@ -115,7 +126,11 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
     var showWifiDialog by remember { mutableStateOf(false) }
     var showStreamPage by remember { mutableStateOf(false) }
     var showSavedClipsScreen by remember { mutableStateOf(false) }
+    var pendingOtp by remember { mutableStateOf("") }
+    var showOtpDialog by remember { mutableStateOf(false) }
+    var showScheduleSection by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
 
     if (showStreamPage) {
         StreamPage(
@@ -198,6 +213,30 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
         ) {
             Text("Send WiFi Credentials")
         }
+        Spacer(Modifier.height(8.dp))
+
+        Button(
+            onClick = {
+                pendingOtp = OtpGenerator.generate()
+                showOtpDialog = true
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Generate OTP")
+        }
+        Spacer(Modifier.height(8.dp))
+
+// Toggle schedule section visibility
+        Button(
+            onClick = { showScheduleSection = !showScheduleSection },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(if (showScheduleSection) "Hide Schedule" else "Set Schedule")
+        }
+
+        if (showScheduleSection) {
+            ScheduleSection(httpClient = httpClient, onStatus = { status = it })
+        }
 
         Spacer(Modifier.height(8.dp))
 
@@ -255,51 +294,33 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
 
                         val cleanedSsid = ssid.trim().replace(Regex("\\p{C}"), "")
                         val cleanedPass = password.trim().replace(Regex("\\p{C}"), "")
-
                         val encodedSsid = URLEncoder.encode(cleanedSsid, "UTF-8")
                         val encodedPass = URLEncoder.encode(cleanedPass, "UTF-8")
-
-                        val ssidBody = "SSID=$encodedSsid"
-                        val passBody = "pass=$encodedPass"
 
                         withContext(Dispatchers.IO) {
                             httpClient.post(
                                 url = NEWSSID_URL,
-                                body = ssidBody,
+                                body = "SSID=$encodedSsid",
                                 contentType = "application/x-www-form-urlencoded",
                                 network = null
                             )
                             httpClient.post(
                                 url = NEWPASS_URL,
-                                body = passBody,
+                                body = "pass=$encodedPass",
+                                contentType = "application/x-www-form-urlencoded",
+                                network = null
+                            )
+                            // Send encrypted password
+                            val generatedPass = PasswordGenerator.generate()
+                            httpClient.post(
+                                url = ENCRYPTEDPASS_URL,
+                                body = "pass=${URLEncoder.encode(generatedPass, "UTF-8")}",
                                 contentType = "application/x-www-form-urlencoded",
                                 network = null
                             )
                         }
 
-                        showWifiDialog = false
-                        status = "Credentials sent ✅\nConnecting ESP32 to your home Wi-Fi…"
 
-                        pollWifiStatus(
-                            httpClient = httpClient,
-                            onStatus = { isConnected, pollStatus ->
-                                if (!isConnected) status = pollStatus
-                            },
-                            onConnected = {
-                                // When ESP32 reports connected:true, send encrypted password to /api/encryptedpass
-                                val generatedPass = PasswordGenerator.generate()
-                                val encodedGenPass = URLEncoder.encode(generatedPass, "UTF-8")
-                                withContext(Dispatchers.IO) {
-                                    httpClient.post(
-                                        url = ENCRYPTEDPASS_URL,
-                                        body = "pass=$encodedGenPass",
-                                        contentType = "application/x-www-form-urlencoded",
-                                        network = null
-                                    )
-                                }
-                                status = "ESP32 connected to home WiFi ✅\nEncrypted pass sent.\nSetup complete!"
-                            }
-                        )
                     } catch (e: Exception) {
                         showWifiDialog = false
                         status =
@@ -307,6 +328,61 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
                                     "Make sure you are connected to ESP32 Wi-Fi in Settings."
                     }
                 }
+            }
+        )
+    }
+    // OTP confirmation dialog
+    if (showOtpDialog && pendingOtp.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { /* prevent accidental dismiss */ },
+            title = { Text("SET OTP") },
+            text = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "Your One-Time Password:",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = pendingOtp,
+                        style = MaterialTheme.typography.displaySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "Send this OTP to the ESP32?",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val otpToSend = pendingOtp  // capture before clearing
+                    showOtpDialog = false
+                    pendingOtp = ""
+                    scope.launch {
+                        try {
+                            withContext(Dispatchers.IO) {
+                                httpClient.post(
+                                    url = ONETIMEPASS_URL,
+                                    body = "otp=${URLEncoder.encode(otpToSend, "UTF-8")}",
+                                    contentType = "application/x-www-form-urlencoded",
+                                    network = null
+                                )
+                            }
+                            status = "OTP sent successfully ✅"
+                        } catch (e: Exception) {
+                            status = "Failed to send OTP ❌: ${e.message}"
+                        }
+                    }
+                }) { Text("Yes") }
+            },
+            dismissButton = {
+                Button(onClick = {
+                    showOtpDialog = false
+                    pendingOtp = ""
+                    status = "OTP cancelled. Resend credentials to generate a new OTP."
+                }) { Text("No") }
             }
         )
     }
@@ -324,7 +400,6 @@ fun StreamPage(
     var streamUrl by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var piBackendStatus by remember { mutableStateOf<String?>(null) }
-
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
@@ -859,6 +934,82 @@ fun PermissionScreen(
     }
 }
 
+@Composable
+fun ScheduleSection(
+    httpClient: EspHttpClient,
+    onStatus: (String) -> Unit
+) {
+    var armTime by remember { mutableStateOf("") }
+    var disarmTime by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+
+            Text("Schedule", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(12.dp))
+
+            // Arm time input
+            OutlinedTextField(
+                value = armTime,
+                onValueChange = { armTime = it },
+                label = { Text("Arm Time (HH:MM)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            // Disarm time input
+            OutlinedTextField(
+                value = disarmTime,
+                onValueChange = { disarmTime = it },
+                label = { Text("Disarm Time (HH:MM)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            // Send schedule button
+            Button(
+                onClick = {
+                    if (armTime.isBlank() || disarmTime.isBlank()) {
+                        onStatus("Please enter both arm and disarm times.")
+                        return@Button
+                    }
+                    scope.launch {
+                        try {
+                            withContext(Dispatchers.IO) {
+                                httpClient.post(
+                                    url = SCHEDULE_URL,
+                                    body = "start=${URLEncoder.encode(armTime, "UTF-8")}" +
+                                            "&stop=${URLEncoder.encode(disarmTime, "UTF-8")}",
+                                    contentType = "application/x-www-form-urlencoded",
+                                    network = null
+                                )
+                            }
+                            onStatus("Schedule set ✅\nStart: $armTime | Stop: $disarmTime")
+                        } catch (e: Exception) {
+                            onStatus("Failed to set schedule ❌: ${e.message}")
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Send Schedule to ESP32")
+            }
+        }
+    }
+}
+
 /**
  * Polls /api/wifistatus every ~750ms until ESP32 returns connected=true.
  * Stops on success, timeout, or coroutine cancellation.
@@ -905,7 +1056,10 @@ private suspend fun pollWifiStatus(
                 onStatus(false, "Waiting for ESP32… ($detail)\nElapsed: ${secondsElapsed()}s")
             } else {
                 val shortRaw = response.trim().take(80)
-                onStatus(false, "Waiting for ESP32…\nStatus: $shortRaw\nElapsed: ${secondsElapsed()}s")
+                onStatus(
+                    false,
+                    "Waiting for ESP32…\nStatus: $shortRaw\nElapsed: ${secondsElapsed()}s"
+                )
             }
 
         } catch (_: Exception) {
@@ -915,5 +1069,8 @@ private suspend fun pollWifiStatus(
         delay(POLL_INTERVAL_MS)
     }
 
-    onStatus(false, "Timeout ❌\nESP32 did not confirm home Wi-Fi within ${POLL_TIMEOUT_MS / 1000}s.")
+    onStatus(
+        false,
+        "Timeout ❌\nESP32 did not confirm home Wi-Fi within ${POLL_TIMEOUT_MS / 1000}s."
+    )
 }
