@@ -36,6 +36,12 @@ void apichangedpass(){
     server.send(200, "text/plain", "OK");
 }
 
+void apionetimepass(){
+    String otprec = server.arg("otp");
+    Serial.println("OTP Received: " + otprec);
+    server.send(200, "text/plain", "OK");
+}
+
 void apiwifistatus(){
     bool connected = false;
     if (WiFi.status() == WL_CONNECTED){
@@ -49,6 +55,24 @@ void apiwifistatus(){
     server.send(200, "application/json", json);
 }
 
+int idscount = 0;
+String IDS[20];
+void apimodule(){
+    if (idscount < 20){
+        IDS[idscount] = server.arg("alert");
+        Serial.print(IDS[idscount]);
+        idscount++;
+    }
+    server.send(200, "text/plain", "OK");
+}
+
+void apischedule(){
+    String armstart = server.arg("start");
+    String armstop = server.arg("stop");
+    Serial.print("Scheduling time starts at " + armstart + "and stops at " + armstop);
+    //times saved and actions taked elsewhere
+}
+
 void apihandle(){
     server.on("/api/health", HTTP_GET, apihealth);
     server.on("/api/creds", HTTP_GET, apicreds);
@@ -57,4 +81,6 @@ void apihandle(){
     server.on("/api/newssid", HTTP_POST, apinewssid);
     server.on("/api/wifistatus", HTTP_GET, apiwifistatus);
     server.on("/api/setmasterip", HTTP_POST, apisetmasterip);
+    server.on("/api/onetimepass", HTTP_POST, apionetimepass);
+    server.on("/api/module", HTTP_POST, apimodule);
 }

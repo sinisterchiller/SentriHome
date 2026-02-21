@@ -13,9 +13,13 @@ void wifi_send(const char* message) {
   if (millis() - lastSend > 1000) {
     lastSend = millis();
 
-    udp.beginPacket(targetIP, udpPort);
-    udp.print(message);
-    udp.endPacket();
+    for (int i = 0; i < idscount; i++) {
+      if (IDS[i].length() > 0) {
+        udp.beginPacket(IDS[i].c_str(), udpPort);
+        udp.print(message);
+        udp.endPacket();
+      }
+    }
 
     Serial.println("Sent message");
   }

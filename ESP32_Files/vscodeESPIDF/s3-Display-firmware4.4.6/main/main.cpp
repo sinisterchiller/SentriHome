@@ -8,10 +8,12 @@ void setup() {
   wifiInit();
   displayinit();
   apihandle();
+  server.begin();
 }
 
 void loop() {
   display();
   wifi_receive();
-  setuppageserver();
+  //setuppageserver();
+  server.handleClient();
 }
