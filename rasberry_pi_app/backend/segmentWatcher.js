@@ -11,14 +11,30 @@ let watcher = null;
 export function startSegmentWatcher() {
   if (watcher) return;
 
-  watcher = chokidar.watch(`${HLS_DIR}/*.ts`, { ignoreInitial: true });
+  // Ensure directory exists before watching
+  fs.mkdirSync(HLS_DIR, { recursive: true });
+
+  watcher = chokidar.watch(`${HLS_DIR}/*.ts`, {
+    ignoreInitial: true,
+    awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
+  });
+
+  watcher.on("ready", () => {
+    console.log("Segment watcher ready and watching hls/*.ts");
+  });
+
+  watcher.on("error", (err) => {
+    console.error("Segment watcher error:", err.message);
+  });
 
   watcher.on("add", async (filePath) => {
-    // Brief delay so ffmpeg finishes writing the segment
-    await new Promise((r) => setTimeout(r, 500));
-
     const { CLOUD_BASE_URL, DEVICE_ID } = getConfig();
-    if (!CLOUD_BASE_URL) return;
+    if (!CLOUD_BASE_URL) {
+      console.warn("No CLOUD_BASE_URL configured, skipping segment upload");
+      return;
+    }
+
+    console.log(`New segment detected: ${filePath}`);
 
     try {
       const form = new FormData();
@@ -27,6 +43,7 @@ export function startSegmentWatcher() {
       form.append("seq", String(segSeq++));
 
       const url = `${CLOUD_BASE_URL.replace(/\/$/, "")}/api/stream/segment`;
+      console.log(`Uploading to: ${url}`);
 
       const res = await fetch(url, {
         method: "POST",
@@ -41,7 +58,7 @@ export function startSegmentWatcher() {
     }
   });
 
-  console.log("Segment watcher started on hls/*.ts");
+  console.log("Segment watcher starting on hls/*.ts ...");
 }
 
 export function stopSegmentWatcher() {
