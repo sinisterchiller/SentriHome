@@ -14,13 +14,14 @@ export function startSegmentWatcher() {
   // Ensure directory exists before watching
   fs.mkdirSync(HLS_DIR, { recursive: true });
 
-  watcher = chokidar.watch(`${HLS_DIR}/*.ts`, {
+  watcher = chokidar.watch(HLS_DIR, {
     ignoreInitial: true,
-    awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
+    usePolling: true,
+    interval: 500,
   });
 
   watcher.on("ready", () => {
-    console.log("Segment watcher ready and watching hls/*.ts");
+    console.log("Segment watcher ready and watching hls/");
   });
 
   watcher.on("error", (err) => {
@@ -28,6 +29,7 @@ export function startSegmentWatcher() {
   });
 
   watcher.on("add", async (filePath) => {
+    if (!filePath.endsWith(".ts")) return;
     const { CLOUD_BASE_URL, DEVICE_ID } = getConfig();
     if (!CLOUD_BASE_URL) {
       console.warn("No CLOUD_BASE_URL configured, skipping segment upload");
@@ -58,7 +60,7 @@ export function startSegmentWatcher() {
     }
   });
 
-  console.log("Segment watcher starting on hls/*.ts ...");
+  console.log("Segment watcher starting on hls/ (polling) ...");
 }
 
 export function stopSegmentWatcher() {
