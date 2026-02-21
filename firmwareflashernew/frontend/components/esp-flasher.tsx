@@ -12,7 +12,13 @@ import {
 } from "@/components/ui/select"
 import { Download, Cpu, CheckCircle2, AlertCircle, Loader2, Zap, ArrowLeft } from "lucide-react"
 
-type FlashStatus = "idle" | "downloading" | "success" | "selecting-port" | "flashing" | "error"
+type FlashStatus = "idle" | "downloading" | "success" | "selecting-port" | "flashing" | "flash-complete" | "error"
+
+interface FlashResult {
+  output: string
+  error: string
+  returncode: number | string
+}
 
 const BASE_URL = "http://127.0.0.1:8000"
 
@@ -25,8 +31,8 @@ export function EspFlasher() {
   const [ports, setPorts] = useState<string[]>([])
   const [selectedPort, setSelectedPort] = useState<string>("")
   const [transitioning, setTransitioning] = useState(false)
+  const [flashResult, setFlashResult] = useState<FlashResult | null>(null)
   const abortRef = useRef<AbortController | null>(null)
-  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const allGoodReceivedRef = useRef(false)
   const healthIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -67,7 +73,6 @@ export function EspFlasher() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current)
       if (abortRef.current) abortRef.current.abort()
     }
   }, [])
@@ -75,11 +80,12 @@ export function EspFlasher() {
   // When device changes after a successful download or port selection, revert to idle
   const handleDeviceChange = useCallback((value: string) => {
     setDevice(value)
-    if (status === "success" || status === "selecting-port" || status === "flashing") {
+    if (status === "success" || status === "selecting-port" || status === "flashing" || status === "flash-complete") {
       setStatus("idle")
       setProgress(0)
       setPorts([])
       setSelectedPort("")
+      setFlashResult(null)
       allGoodReceivedRef.current = false
     }
   }, [status])
@@ -96,18 +102,6 @@ export function EspFlasher() {
     const controller = new AbortController()
     abortRef.current = controller
 
-    let currentProgress = 0
-    progressIntervalRef.current = setInterval(() => {
-      if (allGoodReceivedRef.current) return
-
-      currentProgress += Math.random() * 3 + 0.5
-      if (currentProgress >= 84) {
-        currentProgress = 84
-        if (progressIntervalRef.current) clearInterval(progressIntervalRef.current)
-      }
-      setProgress(Math.min(currentProgress, 84))
-    }, 150)
-
     try {
       const response = await fetch(`${BASE_URL}/actions`, {
         method: "POST",
@@ -116,36 +110,79 @@ export function EspFlasher() {
         signal: controller.signal,
       })
 
-      const data = await response.json()
-
-      if (data.status === "allgood") {
-        allGoodReceivedRef.current = true
-        if (progressIntervalRef.current) clearInterval(progressIntervalRef.current)
-        setProgress(100)
-        setStatus("success")
+      if (!response.body) {
+        throw new Error("No response body")
       }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ""
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+
+        // Backend streams with \r as delimiter: yield f"\r{percent:.2f}"
+        // Split on \r, \n, or both to handle all cases
+        const chunks = buffer.split(/[\r\n]+/)
+        buffer = chunks.pop() || "" // Keep incomplete last chunk in buffer
+
+        for (const chunk of chunks) {
+          const trimmed = chunk.trim()
+          if (!trimmed) continue
+
+          // Check for the allgood JSON response
+          if (trimmed.startsWith("{")) {
+            try {
+              const json = JSON.parse(trimmed)
+              if (json.status === "allgood") {
+                allGoodReceivedRef.current = true
+                setProgress(100)
+                setStatus("success")
+                return
+              }
+            } catch {
+              // Not valid JSON, continue
+            }
+          }
+
+          // Try parsing as a progress number (e.g. "42.57")
+          const num = parseFloat(trimmed)
+          if (!isNaN(num) && !allGoodReceivedRef.current) {
+            setProgress(Math.min(num, 100))
+          }
+        }
+      }
+
+      // Process any remaining buffer after stream ends
+      const remaining = buffer.trim()
+      if (remaining) {
+        if (remaining.startsWith("{")) {
+          try {
+            const json = JSON.parse(remaining)
+            if (json.status === "allgood") {
+              allGoodReceivedRef.current = true
+              setProgress(100)
+              setStatus("success")
+              return
+            }
+          } catch {
+            // ignore
+          }
+        }
+        const num = parseFloat(remaining)
+        if (!isNaN(num) && !allGoodReceivedRef.current) {
+          setProgress(Math.min(num, 100))
+        }
+      }
+
+      // If stream ended without allgood, stay at current progress
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === "AbortError") return
-
-      const checkInterval = setInterval(async () => {
-        try {
-          const resp = await fetch(`${BASE_URL}/actions`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ device: deviceValue, action: "download", options: "none" }),
-          })
-          const data = await resp.json()
-          if (data.status === "allgood") {
-            allGoodReceivedRef.current = true
-            if (progressIntervalRef.current) clearInterval(progressIntervalRef.current)
-            clearInterval(checkInterval)
-            setProgress(100)
-            setStatus("success")
-          }
-        } catch {
-          // Keep waiting
-        }
-      }, 2000)
+      setErrorMessage("Download failed. Retrying...")
+      setStatus("error")
     }
   }, [device])
 
@@ -156,6 +193,7 @@ export function EspFlasher() {
       setProgress(0)
       setPorts([])
       setSelectedPort("")
+      setFlashResult(null)
       allGoodReceivedRef.current = false
       setTransitioning(false)
     }, 300)
@@ -190,18 +228,27 @@ export function EspFlasher() {
     if (!selectedPort) return
 
     setStatus("flashing")
+    setFlashResult(null)
 
     try {
-      await fetch(`${BASE_URL}/actions`, {
+      const response = await fetch(`${BASE_URL}/actions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ device: device === "wroom" ? "wroom" : "s3", action: "flash", options: selectedPort }),
       })
+
+      const data = await response.json()
+      setFlashResult({
+        output: data.output ?? "",
+        error: data.error ?? "",
+        returncode: data.returncode ?? "",
+      })
+      setStatus("flash-complete")
     } catch {
       setErrorMessage("Failed to flash device")
       setStatus("error")
     }
-  }, [selectedPort])
+  }, [selectedPort, device])
 
   const isDownloading = status === "downloading"
   const canDownload = !!device && healthOk && !isDownloading
@@ -308,6 +355,57 @@ export function EspFlasher() {
                 </p>
               </div>
             </div>
+          ) : status === "flash-complete" && flashResult ? (
+            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-primary shrink-0" />
+                <span className="text-sm font-mono text-primary font-medium">
+                  Flash Complete
+                </span>
+              </div>
+
+              {/* Return Code */}
+              <div className="space-y-1">
+                <span className="text-xs font-mono text-muted-foreground">Return Code</span>
+                <div className={`px-3 py-2 rounded-md border font-mono text-sm ${
+                  String(flashResult.returncode) === "0"
+                    ? "border-primary/30 bg-primary/5 text-primary"
+                    : "border-destructive/30 bg-destructive/5 text-destructive"
+                }`}>
+                  {String(flashResult.returncode)}
+                </div>
+              </div>
+
+              {/* Output */}
+              {flashResult.output && (
+                <div className="space-y-1">
+                  <span className="text-xs font-mono text-muted-foreground">Output</span>
+                  <pre className="px-3 py-2 rounded-md border border-border bg-secondary text-foreground font-mono text-xs leading-relaxed whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
+                    {flashResult.output}
+                  </pre>
+                </div>
+              )}
+
+              {/* Error */}
+              {flashResult.error && (
+                <div className="space-y-1">
+                  <span className="text-xs font-mono text-destructive">Error</span>
+                  <pre className="px-3 py-2 rounded-md border border-destructive/30 bg-destructive/5 text-destructive font-mono text-xs leading-relaxed whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
+                    {flashResult.error}
+                  </pre>
+                </div>
+              )}
+
+              <Button
+                onClick={handleGoBack}
+                variant="secondary"
+                className="w-full h-11 font-mono text-sm font-medium"
+                size="lg"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Go Back
+              </Button>
+            </div>
           ) : status === "success" ? (
             <div className="flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
               <Button
@@ -368,7 +466,7 @@ export function EspFlasher() {
                     : "Downloading firmware..."}
                 </span>
                 <span className="text-xs font-mono text-foreground tabular-nums">
-                  {Math.round(progress)}%
+                  {progress.toFixed(2)}%
                 </span>
               </div>
 

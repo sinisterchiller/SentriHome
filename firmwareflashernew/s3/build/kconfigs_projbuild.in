@@ -1,0 +1,6 @@
+source "/Users/anuragkoushik/Desktop/Deployment/HomeSecurity-local/v4.4.6/esp-idf/components/app_update/Kconfig.projbuild"
+source "/Users/anuragkoushik/Desktop/Deployment/HomeSecurity-local/v4.4.6/esp-idf/components/bootloader/Kconfig.projbuild"
+source "/Users/anuragkoushik/Desktop/Deployment/HomeSecurity-local/v4.4.6/esp-idf/components/esp_rom/Kconfig.projbuild"
+source "/Users/anuragkoushik/Desktop/Deployment/HomeSecurity-local/v4.4.6/esp-idf/components/esptool_py/Kconfig.projbuild"
+source "/Users/anuragkoushik/Desktop/Deployment/HomeSecurity-local/v4.4.6/esp-idf/components/partition_table/Kconfig.projbuild"
+source "/Users/anuragkoushik/Desktop/Deployment/Home-Security/ESP32_Files/vscodeESPIDF/s3-Display-firmware4.4.6/components/arduino/Kconfig.projbuild"
