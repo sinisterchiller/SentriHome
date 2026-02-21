@@ -18,6 +18,8 @@ import {
 import { uploadToDrive, handleEventUpload } from "./driveUploader.js";
 import { connectMongo } from "./mongo.js";
 import { Event } from "./models/Event.js";
+import { uploadToS3, getPresignedUrl, pruneOldSegments } from "./s3Client.js";
+import { getHlsCache } from "./hlsCache.js";
 
 const app = express();
 app.use(cors({
