@@ -1,0 +1,5 @@
+#!/bin/bash
+DIR="$(cd "$(dirname "$0")" && pwd)"
+BIN="$DIR/firmwareflasher_bin"
+
+/usr/bin/osascript -e 'tell application "Terminal" to activate'   -e "tell application \"Terminal\" to do script \"cd \\\"$DIR\\\"; \\\"$BIN\\\"; echo; echo DONE; read -n 1\""

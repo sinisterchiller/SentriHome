@@ -19,6 +19,8 @@ void wifi_receive(void);
 void apihandle(void);
 extern String wifissid;
 extern String wifipassword;
+extern int idscount;
+extern String IDS[20];
 
 
 #endif 
