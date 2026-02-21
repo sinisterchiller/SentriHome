@@ -4,8 +4,8 @@
  * without hitting S3 on every request.
  */
 
-const MAX_SEGMENTS = 6;          // ~30s at 5s/segment
-const SEGMENT_DURATION = 5;      // must match ffmpeg -hls_time
+const MAX_SEGMENTS = 6;          // ~12s at 2s/segment
+const SEGMENT_DURATION = 2;      // must match ffmpeg -hls_time
 
 class HlsCache {
   constructor() {

@@ -12,21 +12,12 @@ const EventSchema = new mongoose.Schema({
     required: true,
   },
 
-  driveFileId: {
+  s3Key: {
     type: String,
     required: true,
   },
 
-  driveLink: {
-    type: String,
-    required: true,
-  },
-
-  thumbnailDriveId: {
-    type: String,
-  },
-
-  thumbnailUrl: {
+  thumbnailS3Key: {
     type: String,
   },
 

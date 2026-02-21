@@ -34,6 +34,8 @@ object ApiConfig {
         const val EVENTS = "/api/events"
         const val CLIPS = "/api/clips"
         const val EVENTS_UPLOAD = "/api/events/upload"
+        const val STREAM_PLAYLIST = "/api/stream/playlist"
+        const val STREAM_STATUS = "/api/stream/status"
         const val CLEAR_ALL = "/api/clear-all"
         const val NEW_SSID = "/api/newssid"
         const val NEW_PASS = "/api/newpass"
@@ -69,6 +71,14 @@ object ApiConfig {
     fun getNewSsidUrl() = "${cloudBaseUrl()}${CloudEndpoints.NEW_SSID}"
     fun getNewPassUrl() = "${cloudBaseUrl()}${CloudEndpoints.NEW_PASS}"
     fun getWifiStatusUrl() = "${cloudBaseUrl()}${CloudEndpoints.WIFI_STATUS}"
+    /** GET /api/stream/playlist/:deviceId — live HLS m3u8 */
+    fun getStreamPlaylistUrl(deviceId: String) =
+        "${cloudBaseUrl()}${CloudEndpoints.STREAM_PLAYLIST}/$deviceId"
+
+    /** GET /api/stream/status/:deviceId — stream liveness check */
+    fun getStreamStatusUrl(deviceId: String) =
+        "${cloudBaseUrl()}${CloudEndpoints.STREAM_STATUS}/$deviceId"
+
     fun getClearAllUrl() = "${cloudBaseUrl()}${CloudEndpoints.CLEAR_ALL}"
 
     // Pi Backend URLs (port 4000)

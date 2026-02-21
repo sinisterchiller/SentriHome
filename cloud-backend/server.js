@@ -6,16 +6,11 @@ import fs from "fs";
 import path from "path";
 import multer from "multer";
 
-import { google } from "googleapis";
-
 import {
   createOAuthClient,
   getAuthUrl,
   handleOAuthCallback,
-  getAuthorizedClient,
 } from "./googleAuth.js";
-
-import { uploadToDrive, handleEventUpload } from "./driveUploader.js";
 import { connectMongo } from "./mongo.js";
 import { Event } from "./models/Event.js";
 import { uploadToS3, getPresignedUrl, pruneOldSegments } from "./s3Client.js";
@@ -81,27 +76,70 @@ app.get("/status", (_req, res) => {
 });
 
 /* =========================
-   Stream control endpoints (for frontend convenience)
+   Stream: Pi pushes HLS segments
 ========================= */
 
-app.post("/start", (req, res) => {
-  res.json({ 
-    status: "ok", 
-    message: "Stream control not available on cloud backend. Use Pi backend at localhost:4000" 
-  });
+/**
+ * POST /api/stream/segment
+ * Body: multipart, field "segment" = .ts file, "deviceId", "seq"
+ * Called by Pi backend for every ffmpeg output segment.
+ */
+app.post("/api/stream/segment", upload.single("segment"), async (req, res) => {
+  const deviceId = req.body.deviceId || "default";
+  const file = req.file;
+  if (!file) return res.status(400).json({ error: "No segment file" });
+
+  try {
+    const seq = req.body.seq || Date.now();
+    const s3Key = `live/${deviceId}/seg_${seq}.ts`;
+
+    const data = fs.readFileSync(file.path);
+    await uploadToS3(s3Key, data, "video/mp2t");
+    fs.unlinkSync(file.path);
+
+    const cache = getHlsCache(deviceId);
+    cache.addSegment(s3Key);
+
+    pruneOldSegments(`live/${deviceId}/`, 10 * 60 * 1000).catch(console.error);
+
+    res.json({ status: "ok", key: s3Key });
+  } catch (err) {
+    if (file?.path && fs.existsSync(file.path)) fs.unlinkSync(file.path);
+    console.error("Segment upload error:", err.message);
+    res.status(500).json({ error: "Segment upload failed" });
+  }
 });
 
-app.post("/stop", (req, res) => {
-  res.json({ 
-    status: "ok", 
-    message: "Stream control not available on cloud backend. Use Pi backend at localhost:4000" 
-  });
+/**
+ * GET /api/stream/playlist/:deviceId
+ * Returns a live HLS m3u8 playlist with presigned S3 URLs.
+ */
+app.get("/api/stream/playlist/:deviceId", async (req, res) => {
+  const deviceId = req.params.deviceId || "default";
+  const cache = getHlsCache(deviceId);
+
+  if (!cache.isLive || cache.age > 15000) {
+    return res.status(404).json({ error: "Stream offline" });
+  }
+
+  const playlist = await cache.buildPlaylist(getPresignedUrl);
+  if (!playlist) return res.status(404).json({ error: "No segments yet" });
+
+  res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+  res.setHeader("Cache-Control", "no-cache, no-store");
+  res.send(playlist);
 });
 
-app.post("/motion", (req, res) => {
-  res.json({ 
-    status: "ok", 
-    message: "Motion trigger not available on cloud backend. Use Pi backend at localhost:4000" 
+/**
+ * GET /api/stream/status/:deviceId
+ * Lightweight poll endpoint to check if stream is live.
+ */
+app.get("/api/stream/status/:deviceId", (req, res) => {
+  const cache = getHlsCache(req.params.deviceId || "default");
+  res.json({
+    live: cache.isLive && cache.age < 15000,
+    segmentCount: cache.segments.length,
+    lastUpdated: cache.lastUpdated,
   });
 });
 
@@ -112,31 +150,39 @@ app.post("/motion", (req, res) => {
 app.post("/api/events/upload", upload.single("file"), async (req, res) => {
   const deviceId = req.body.deviceId || "unknown";
   const type = req.body.type || "video";
-
-  if (!req.file) {
-    console.warn("⚠️ [Upload] Request missing file (deviceId=%s)", deviceId);
-    return res.status(400).json({ error: "Missing file" });
-  }
-
-  const filename = req.file.originalname || path.basename(req.file.path);
-  console.log("📥 [Upload] Received: %s (deviceId=%s, type=%s, size=%d)", filename, deviceId, type, req.file.size);
+  if (!req.file) return res.status(400).json({ error: "Missing file" });
 
   try {
-    const event = await handleEventUpload(req.file.path, deviceId, type);
+    const ext = path.extname(req.file.originalname) || (type === "thumbnail" ? ".jpg" : ".mp4");
+    const eventId = `${deviceId}_${Date.now()}`;
+    const s3Key = `events/${deviceId}/${eventId}${ext}`;
+    const contentType = type === "thumbnail" ? "image/jpeg" : "video/mp4";
 
-    // OPTIONAL: delete local copy after upload
+    const data = fs.readFileSync(req.file.path);
+    await uploadToS3(s3Key, data, contentType);
     fs.unlinkSync(req.file.path);
 
-    console.log("✅ [Upload] Success: %s → eventId=%s, driveFileId=%s", filename, event._id, event.driveFileId);
-    res.json({
-      status: "ok",
-      event,
-    });
-  } catch (err) {
-    console.error("❌ [Upload] Failed: %s — %s", filename, err.message);
-    if (req.file?.path && fs.existsSync(req.file.path)) {
-      try { fs.unlinkSync(req.file.path); } catch (_) {}
+    // Save to MongoDB
+    let event;
+    if (type === "video") {
+      event = await Event.create({
+        deviceId,
+        filename: req.file.originalname || `${eventId}.mp4`,
+        s3Key,
+        status: "ready",
+      });
+    } else {
+      // Thumbnail — attach to latest pending event for this device
+      event = await Event.findOneAndUpdate(
+        { deviceId, thumbnailS3Key: { $exists: false } },
+        { thumbnailS3Key: s3Key },
+        { new: true, sort: { createdAt: -1 } }
+      );
     }
+
+    res.json({ status: "ok", event });
+  } catch (err) {
+    if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     res.status(500).json({ error: "Upload failed" });
   }
 });
@@ -146,116 +192,34 @@ app.post("/api/events/upload", upload.single("file"), async (req, res) => {
 ========================= */
 
 app.get("/api/events", async (_req, res) => {
-  const events = await Event.find({})
-    .sort({ createdAt: -1 })
-    .limit(100);
-
-  // Transform to match frontend expected format
-  const formattedEvents = events.map(event => ({
-    _id: event._id,
-    id: event._id,
-    deviceId: event.deviceId,
-    createdAt: event.createdAt,
-    timestamp: event.createdAt,
-    status: event.status,
-    thumbnail: event.thumbnailDriveId ? {
-      driveFileId: event.thumbnailDriveId,
-      webViewLink: event.thumbnailUrl,
-      directUrl: `https://drive.google.com/uc?id=${event.thumbnailDriveId}`
-    } : null,
-    video: {
-      driveFileId: event.driveFileId,
-      webViewLink: event.driveLink,
-      directUrl: `https://drive.google.com/uc?id=${event.driveFileId}`
-    }
-  }));
-
-  res.json(formattedEvents);
+  const events = await Event.find({}).sort({ createdAt: -1 }).limit(100);
+  res.json(events.map(e => ({
+    _id: e._id,
+    deviceId: e.deviceId,
+    filename: e.filename,
+    createdAt: e.createdAt,
+    status: e.status,
+    hasVideo: !!e.s3Key,
+    hasThumbnail: !!e.thumbnailS3Key,
+  })));
 });
 
 /* =========================
-   Serve clips from Google Drive
+   Serve clips from S3
 ========================= */
 
-async function streamFileFromDrive(driveFileId, res, mimeType, filename) {
-  const auth = getAuthorizedClient();
-  const drive = google.drive({ version: "v3", auth });
-
-  const response = await drive.files.get(
-    { fileId: driveFileId, alt: "media" },
-    { responseType: "stream" }
-  );
-
-  res.setHeader("Content-Type", mimeType);
-  if (filename) {
-    res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
-  }
-  response.data.pipe(res);
-}
-
 app.get("/api/clips/:eventId", async (req, res) => {
-  const eventId = req.params.eventId?.trim();
-  console.log("🎬 [Clip] Request: eventId=%s", eventId || "(empty)");
-  try {
-    if (!eventId) return res.status(400).json({ error: "Invalid event ID" });
-    const event = await Event.findById(eventId);
-    if (!event) {
-      console.warn("⚠️ [Clip] Not found: %s", eventId);
-      return res.status(404).json({ error: "Event not found" });
-    }
-    if (!event.driveFileId || event.driveFileId === "pending") {
-      console.warn("⚠️ [Clip] Video not available: %s (driveFileId=%s)", eventId, event.driveFileId);
-      return res.status(404).json({ error: "Video not yet available" });
-    }
-
-    console.log("✅ [Clip] Serving: eventId=%s, driveFileId=%s", eventId, event.driveFileId);
-    await streamFileFromDrive(
-      event.driveFileId,
-      res,
-      "video/mp4",
-      event.filename || "clip.mp4"
-    );
-  } catch (err) {
-    if (res.headersSent) return;
-    if (err.code === 404 || err.message?.includes("404")) {
-      return res.status(404).json({ error: "Clip not found" });
-    }
-    console.error("❌ [Clip] Serve failed: eventId=%s — %s", eventId, err.message);
-    res.status(500).json({ error: "Failed to serve clip" });
-  }
+  const event = await Event.findById(req.params.eventId.trim());
+  if (!event?.s3Key) return res.status(404).json({ error: "Not found" });
+  const url = await getPresignedUrl(event.s3Key, 3600);
+  res.redirect(302, url);
 });
 
 app.get("/api/clips/:eventId/thumbnail", async (req, res) => {
-  const eventId = req.params.eventId?.trim();
-  console.log("🖼 [Thumbnail] Request: eventId=%s", eventId || "(empty)");
-  try {
-    if (!eventId) return res.status(400).json({ error: "Invalid event ID" });
-    const event = await Event.findById(eventId);
-    if (!event) {
-      console.warn("⚠️ [Thumbnail] Event not found: %s", eventId);
-      return res.status(404).json({ error: "Event not found" });
-    }
-    const thumbnailId = event.thumbnailDriveId;
-    if (!thumbnailId) {
-      console.warn("⚠️ [Thumbnail] Not available: %s", eventId);
-      return res.status(404).json({ error: "Thumbnail not available" });
-    }
-
-    console.log("✅ [Thumbnail] Serving: eventId=%s, driveFileId=%s", eventId, thumbnailId);
-    await streamFileFromDrive(
-      thumbnailId,
-      res,
-      "image/jpeg",
-      "thumbnail.jpg"
-    );
-  } catch (err) {
-    if (res.headersSent) return;
-    if (err.code === 404 || err.message?.includes("404")) {
-      return res.status(404).json({ error: "Thumbnail not found" });
-    }
-    console.error("❌ [Thumbnail] Serve failed: eventId=%s — %s", eventId, err.message);
-    res.status(500).json({ error: "Failed to serve thumbnail" });
-  }
+  const event = await Event.findById(req.params.eventId.trim());
+  if (!event?.thumbnailS3Key) return res.status(404).json({ error: "No thumbnail" });
+  const url = await getPresignedUrl(event.thumbnailS3Key, 3600);
+  res.redirect(302, url);
 });
 
 /* =========================
@@ -267,7 +231,7 @@ app.delete("/api/clear-all", async (_req, res) => {
     // Clear MongoDB events
     await Event.deleteMany({});
     
-    // Note: Drive files would need additional cleanup logic
+    // Note: S3 files would need additional cleanup logic
     // For now, just clear the database
     
     res.json({ 

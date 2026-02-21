@@ -6,7 +6,7 @@ const CONFIG_PATH = path.resolve(process.cwd(), "config.json");
 const DEFAULTS = {
   CLOUD_BASE_URL: "http://localhost:3001",
   CLOUD_UPLOAD_ENDPOINT: "/api/events/upload",
-  DEVICE_ID: "pi-dev-001",
+  DEVICE_ID: "pi-1",
   UPLOAD_POLL_MS: 8000,
   UPLOAD_INTERVAL_MS: 30_000,
   MAX_ATTEMPTS: 5,
