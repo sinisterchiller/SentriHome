@@ -44,6 +44,10 @@ import java.net.URLEncoder
 import androidx.annotation.RequiresApi
 import kotlin.collections.isNotEmpty
 import kotlin.collections.take
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.foundation.layout.Arrangement
 
 private const val BASE_URL = "http://192.168.10.1"
 private const val HEALTH_URL = "$BASE_URL/api/health"
@@ -55,6 +59,9 @@ private const val ONETIMEPASS_URL = "$BASE_URL/api/onetimepass"
 private const val WIFISTATUS_URL = "$BASE_URL/api/wifistatus"
 private const val POLL_INTERVAL_MS = 750L
 private const val POLL_TIMEOUT_MS = 60_000L
+private const val ARM_URL       = "$BASE_URL/api/arm"
+private const val SCHEDULE_URL  = "$BASE_URL/api/schedule"
+private const val ARMSTATUS_URL = "$BASE_URL/api/armstatus"
 
 class MainActivity : ComponentActivity() {
 
@@ -121,7 +128,9 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
     var showSavedClipsScreen by remember { mutableStateOf(false) }
     var pendingOtp by remember { mutableStateOf("") }
     var showOtpDialog by remember { mutableStateOf(false) }
+    var showScheduleSection by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
 
     if (showStreamPage) {
         StreamPage(
@@ -214,6 +223,19 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Generate OTP")
+        }
+        Spacer(Modifier.height(8.dp))
+
+// Toggle schedule section visibility
+        Button(
+            onClick = { showScheduleSection = !showScheduleSection },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(if (showScheduleSection) "Hide Schedule" else "Set Schedule")
+        }
+
+        if (showScheduleSection) {
+            ScheduleSection(httpClient = httpClient, onStatus = { status = it })
         }
 
         Spacer(Modifier.height(8.dp))
@@ -912,6 +934,82 @@ fun PermissionScreen(
     }
 }
 
+@Composable
+fun ScheduleSection(
+    httpClient: EspHttpClient,
+    onStatus: (String) -> Unit
+) {
+    var armTime by remember { mutableStateOf("") }
+    var disarmTime by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+
+            Text("Schedule", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(12.dp))
+
+            // Arm time input
+            OutlinedTextField(
+                value = armTime,
+                onValueChange = { armTime = it },
+                label = { Text("Arm Time (HH:MM)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            // Disarm time input
+            OutlinedTextField(
+                value = disarmTime,
+                onValueChange = { disarmTime = it },
+                label = { Text("Disarm Time (HH:MM)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            // Send schedule button
+            Button(
+                onClick = {
+                    if (armTime.isBlank() || disarmTime.isBlank()) {
+                        onStatus("Please enter both arm and disarm times.")
+                        return@Button
+                    }
+                    scope.launch {
+                        try {
+                            withContext(Dispatchers.IO) {
+                                httpClient.post(
+                                    url = SCHEDULE_URL,
+                                    body = "start=${URLEncoder.encode(armTime, "UTF-8")}" +
+                                            "&stop=${URLEncoder.encode(disarmTime, "UTF-8")}",
+                                    contentType = "application/x-www-form-urlencoded",
+                                    network = null
+                                )
+                            }
+                            onStatus("Schedule set ✅\nStart: $armTime | Stop: $disarmTime")
+                        } catch (e: Exception) {
+                            onStatus("Failed to set schedule ❌: ${e.message}")
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Send Schedule to ESP32")
+            }
+        }
+    }
+}
+
 /**
  * Polls /api/wifistatus every ~750ms until ESP32 returns connected=true.
  * Stops on success, timeout, or coroutine cancellation.
@@ -958,7 +1056,10 @@ private suspend fun pollWifiStatus(
                 onStatus(false, "Waiting for ESP32… ($detail)\nElapsed: ${secondsElapsed()}s")
             } else {
                 val shortRaw = response.trim().take(80)
-                onStatus(false, "Waiting for ESP32…\nStatus: $shortRaw\nElapsed: ${secondsElapsed()}s")
+                onStatus(
+                    false,
+                    "Waiting for ESP32…\nStatus: $shortRaw\nElapsed: ${secondsElapsed()}s"
+                )
             }
 
         } catch (_: Exception) {
@@ -968,5 +1069,8 @@ private suspend fun pollWifiStatus(
         delay(POLL_INTERVAL_MS)
     }
 
-    onStatus(false, "Timeout ❌\nESP32 did not confirm home Wi-Fi within ${POLL_TIMEOUT_MS / 1000}s.")
+    onStatus(
+        false,
+        "Timeout ❌\nESP32 did not confirm home Wi-Fi within ${POLL_TIMEOUT_MS / 1000}s."
+    )
 }
