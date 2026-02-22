@@ -62,6 +62,47 @@ app.get("/auth/google", (_req, res) => {
 
 app.get("/auth/google/callback", async (req, res) => {
   console.log("OAuth callback hit, code=" + (req.query.code ? "present" : "MISSING"));
+
+  // Helper: serve an HTML bridge page that opens the custom-scheme deep link.
+  // Chrome blocks server-side 302 redirects to custom URI schemes, but it does
+  // honour <a href="custom://..."> navigations triggered from JS / user click.
+  const sendDeepLinkPage = (deepLink, success) => {
+    const escaped = deepLink.replace(/"/g, "&quot;");
+    const icon    = success ? "✅" : "❌";
+    const title   = success ? "Login Successful" : "Login Failed";
+    const body    = success
+      ? "You are now signed in. Opening the app…"
+      : "Something went wrong. Please try again.";
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>${title}</title>
+  <style>
+    body{font-family:sans-serif;display:flex;flex-direction:column;align-items:center;
+         justify-content:center;min-height:100vh;margin:0;padding:24px;
+         background:#f8f9fa;color:#202124;text-align:center}
+    h1{font-size:1.5rem;margin-bottom:8px}
+    p{color:#5f6368;margin-bottom:24px}
+    a.btn{display:inline-block;padding:14px 32px;background:#1a73e8;color:#fff;
+          border-radius:8px;text-decoration:none;font-size:1rem;font-weight:600}
+  </style>
+</head>
+<body>
+  <div style="font-size:3rem">${icon}</div>
+  <h1>${title}</h1>
+  <p>${body}</p>
+  <a class="btn" href="${escaped}" id="open">Open App</a>
+  <script>
+    // Auto-open: works in Chrome/WebView as long as it's on the main frame.
+    try { document.getElementById('open').click(); } catch(e){}
+    // Fallback: if the app didn't open, the button stays visible.
+  </script>
+</body>
+</html>`);
+  };
+
   try {
     const client = createOAuthClient();
     const tokens = await handleOAuthCallback(client, req.query.code);
@@ -76,15 +117,16 @@ app.get("/auth/google/callback", async (req, res) => {
       console.warn("Could not fetch user email:", e.message);
     }
     if (!email) {
-      res.redirect("home-security://auth-error?msg=" + encodeURIComponent("Could not get user email"));
-      return;
+      const link = "home-security://auth-error?msg=" + encodeURIComponent("Could not get user email");
+      return sendDeepLinkPage(link, false);
     }
     const authToken = createToken(email);
     const params = new URLSearchParams({ email, token: authToken });
-    res.redirect("home-security://auth-success?" + params.toString());
+    sendDeepLinkPage("home-security://auth-success?" + params.toString(), true);
   } catch (err) {
     console.error("OAuth callback error:", err.message);
-    res.redirect("home-security://auth-error?msg=" + encodeURIComponent(err.message || "OAuth failed"));
+    const link = "home-security://auth-error?msg=" + encodeURIComponent(err.message || "OAuth failed");
+    sendDeepLinkPage(link, false);
   }
 });
 
