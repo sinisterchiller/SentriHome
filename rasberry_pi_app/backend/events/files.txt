@@ -1,7 +1,0 @@
-file '/Users/sh/Documents/AI Library/Projects/Home-Security-V2/Home-Security/rasberry_pi_app/backend/buffer/chunk_00364.ts'
-file '/Users/sh/Documents/AI Library/Projects/Home-Security-V2/Home-Security/rasberry_pi_app/backend/buffer/chunk_00365.ts'
-file '/Users/sh/Documents/AI Library/Projects/Home-Security-V2/Home-Security/rasberry_pi_app/backend/buffer/chunk_00366.ts'
-file '/Users/sh/Documents/AI Library/Projects/Home-Security-V2/Home-Security/rasberry_pi_app/backend/buffer/chunk_00367.ts'
-file '/Users/sh/Documents/AI Library/Projects/Home-Security-V2/Home-Security/rasberry_pi_app/backend/buffer/chunk_00368.ts'
-file '/Users/sh/Documents/AI Library/Projects/Home-Security-V2/Home-Security/rasberry_pi_app/backend/buffer/chunk_00369.ts'
-file '/Users/sh/Documents/AI Library/Projects/Home-Security-V2/Home-Security/rasberry_pi_app/backend/buffer/chunk_00370.ts'
