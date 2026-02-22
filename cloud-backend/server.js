@@ -10,9 +10,13 @@ import {
   createOAuthClient,
   getAuthUrl,
   handleOAuthCallback,
+  getDriveUserEmail,
+  saveTokensForUser,
 } from "./googleAuth.js";
+import { requireAuth, requireAuthOrQueryToken, createToken, invalidateToken } from "./auth.js";
 import { connectMongo } from "./mongo.js";
 import { Event } from "./models/Event.js";
+import { Device } from "./models/Device.js";
 import { uploadToS3, getPresignedUrl, pruneOldSegments } from "./s3Client.js";
 import { getHlsCache } from "./hlsCache.js";
 
@@ -57,14 +61,65 @@ app.get("/auth/google", (_req, res) => {
 });
 
 app.get("/auth/google/callback", async (req, res) => {
+  console.log("OAuth callback hit, code=" + (req.query.code ? "present" : "MISSING"));
   try {
     const client = createOAuthClient();
-    await handleOAuthCallback(client, req.query.code);
-    res.send("✅ Google Drive connected. You can close this tab.");
+    const tokens = await handleOAuthCallback(client, req.query.code);
+    let email = null;
+    try {
+      email = await getDriveUserEmail(client);
+      if (email) {
+        console.log("Google Drive connected as:", email);
+        saveTokensForUser(email, tokens);
+      }
+    } catch (e) {
+      console.warn("Could not fetch user email:", e.message);
+    }
+    if (!email) {
+      res.redirect("home-security://auth-error?msg=" + encodeURIComponent("Could not get user email"));
+      return;
+    }
+    const authToken = createToken(email);
+    const params = new URLSearchParams({ email, token: authToken });
+    res.redirect("home-security://auth-success?" + params.toString());
   } catch (err) {
     console.error("OAuth callback error:", err.message);
-    res.status(500).send("OAuth failed");
+    res.redirect("home-security://auth-error?msg=" + encodeURIComponent(err.message || "OAuth failed"));
   }
+});
+
+/* =========================
+   Auth status (requires Bearer token)
+========================= */
+
+app.get("/api/auth/me", requireAuth, (req, res) => {
+  res.json({ email: req.user.email });
+});
+
+app.post("/api/auth/logout", requireAuth, (req, res) => {
+  const raw = req.headers.authorization;
+  const token = raw && raw.startsWith("Bearer ") ? raw.slice(7).trim() : null;
+  invalidateToken(token);
+  console.log("User logged out:", req.user.email);
+  res.json({ status: "ok", message: "Logged out" });
+});
+
+/* =========================
+   Device linking (Pi -> user, for upload attribution)
+========================= */
+
+app.post("/api/devices/link", requireAuth, async (req, res) => {
+  const deviceId = req.body?.deviceId?.trim?.();
+  if (!deviceId) {
+    return res.status(400).json({ error: "deviceId required" });
+  }
+  await Device.findOneAndUpdate(
+    { deviceId },
+    { ownerEmail: req.user.email, updatedAt: new Date() },
+    { upsert: true, new: true }
+  );
+  console.log("Device linked: %s → %s", deviceId, req.user.email);
+  res.json({ status: "ok", deviceId, ownerEmail: req.user.email });
 });
 
 /* =========================
@@ -158,14 +213,19 @@ app.post("/api/events/upload", upload.single("file"), async (req, res) => {
     const s3Key = `events/${deviceId}/${eventId}${ext}`;
     const contentType = type === "thumbnail" ? "image/jpeg" : "video/mp4";
 
+    let ownerEmail = null;
+    const device = await Device.findOne({ deviceId }).lean();
+    if (device?.ownerEmail) ownerEmail = device.ownerEmail;
+
     const data = fs.readFileSync(req.file.path);
     await uploadToS3(s3Key, data, contentType);
     fs.unlinkSync(req.file.path);
 
-    // Save to MongoDB
+    // Save to MongoDB (with ownerEmail for multi-user)
     let event;
     if (type === "video") {
       event = await Event.create({
+        ownerEmail: ownerEmail || undefined,
         deviceId,
         filename: req.file.originalname || `${eventId}.mp4`,
         s3Key,
@@ -188,16 +248,20 @@ app.post("/api/events/upload", upload.single("file"), async (req, res) => {
 });
 
 /* =========================
-   Frontend API - List events
+   Frontend API - List events (only this user's)
 ========================= */
 
-app.get("/api/events", async (_req, res) => {
-  const events = await Event.find({}).sort({ createdAt: -1 }).limit(100);
+app.get("/api/events", requireAuth, async (req, res) => {
+  const events = await Event.find({ ownerEmail: req.user.email })
+    .sort({ createdAt: -1 })
+    .limit(100);
   res.json(events.map(e => ({
     _id: e._id,
+    id: e._id,
     deviceId: e.deviceId,
     filename: e.filename,
     createdAt: e.createdAt,
+    timestamp: e.createdAt,
     status: e.status,
     hasVideo: !!e.s3Key,
     hasThumbnail: !!e.thumbnailS3Key,
@@ -205,19 +269,29 @@ app.get("/api/events", async (_req, res) => {
 });
 
 /* =========================
-   Serve clips from S3
+   Serve clips from S3 (auth required, owner-only)
 ========================= */
 
-app.get("/api/clips/:eventId", async (req, res) => {
-  const event = await Event.findById(req.params.eventId.trim());
+app.get("/api/clips/:eventId", requireAuthOrQueryToken, async (req, res) => {
+  const eventId = req.params.eventId?.trim();
+  if (!eventId) return res.status(400).json({ error: "Invalid event ID" });
+  const event = await Event.findById(eventId);
   if (!event?.s3Key) return res.status(404).json({ error: "Not found" });
+  if (event.ownerEmail && event.ownerEmail !== req.user.email) {
+    return res.status(403).json({ error: "Forbidden: not your clip" });
+  }
   const url = await getPresignedUrl(event.s3Key, 3600);
   res.redirect(302, url);
 });
 
-app.get("/api/clips/:eventId/thumbnail", async (req, res) => {
-  const event = await Event.findById(req.params.eventId.trim());
+app.get("/api/clips/:eventId/thumbnail", requireAuthOrQueryToken, async (req, res) => {
+  const eventId = req.params.eventId?.trim();
+  if (!eventId) return res.status(400).json({ error: "Invalid event ID" });
+  const event = await Event.findById(eventId);
   if (!event?.thumbnailS3Key) return res.status(404).json({ error: "No thumbnail" });
+  if (event.ownerEmail && event.ownerEmail !== req.user.email) {
+    return res.status(403).json({ error: "Forbidden: not your clip" });
+  }
   const url = await getPresignedUrl(event.thumbnailS3Key, 3600);
   res.redirect(302, url);
 });

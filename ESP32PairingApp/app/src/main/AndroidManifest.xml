@@ -35,6 +35,14 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Deep link for Google OAuth callback -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="home-security" android:host="auth-success" />
+                <data android:scheme="home-security" android:host="auth-error" />
+            </intent-filter>
         </activity>
     </application>
 

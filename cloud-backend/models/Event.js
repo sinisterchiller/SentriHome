@@ -1,6 +1,12 @@
 import mongoose from "mongoose";
 
 const EventSchema = new mongoose.Schema({
+  /** Google account that owns this event (whose Drive the files are in). */
+  ownerEmail: {
+    type: String,
+    required: false,
+    index: true,
+  },
   deviceId: {
     type: String,
     required: true,
