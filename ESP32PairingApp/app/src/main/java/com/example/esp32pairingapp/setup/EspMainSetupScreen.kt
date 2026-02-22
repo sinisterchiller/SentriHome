@@ -2,21 +2,41 @@ package com.example.esp32pairingapp.setup
 
 import android.os.Build
 import androidx.annotation.RequiresApi
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.*
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.outlined.Cable
+import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.Shuffle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.esp32pairingapp.network.EspHttpClient
 import com.example.esp32pairingapp.network.EspSetupPrefs
 import com.example.esp32pairingapp.pairing.PasswordGenerator
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.URLEncoder
@@ -65,7 +85,13 @@ fun EspMainSetupScreen(
         }
     }
 
-    val stepLabels = listOf("Connect", "Permanent Pass", "Random Pass", "Pair Module", "Done")
+    val steps = listOf(
+        StepDef("Connect", Icons.Filled.Wifi),
+        StepDef("Permanent", Icons.Outlined.Shield),
+        StepDef("Random", Icons.Outlined.Shuffle),
+        StepDef("Module", Icons.Outlined.Cable),
+        StepDef("Done", Icons.Filled.CheckCircle),
+    )
     val allowedChars = ('0'..'9').toSet() + ('A'..'D').toSet() + setOf('#', '*')
 
     Scaffold(
@@ -88,7 +114,7 @@ fun EspMainSetupScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // Step indicator
-                StepIndicator(currentStep = currentStep, labels = stepLabels)
+                StepIndicator(currentStep = currentStep, steps = steps)
 
                 Spacer(Modifier.height(4.dp))
 
@@ -122,15 +148,15 @@ fun EspMainSetupScreen(
                                 isLoading = true
                                 status = "Testing ESP Main connection..."
                                 try {
-                                    val resp = withContext(Dispatchers.IO) {
+                                    withContext(Dispatchers.IO) {
                                         httpClient.get(HEALTH_URL, network = null)
                                     }
                                     connectionOk = true
-                                    status = "ESP Main connected ✅"
+                                    status = "ESP Main connected"
                                     currentStep = 1
                                 } catch (e: Exception) {
                                     connectionOk = false
-                                    status = "Connection failed ❌: ${e.message}\n\nMake sure you're on the same Wi-Fi network as the ESP."
+                                    status = "Connection failed: ${e.message}\n\nMake sure you're on the same Wi-Fi network as the ESP."
                                 }
                                 isLoading = false
                             }
@@ -138,7 +164,15 @@ fun EspMainSetupScreen(
                         enabled = !isLoading && !connectionOk,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(if (connectionOk) "Connected ✅" else "Test Connection")
+                        if (connectionOk) {
+                            Icon(Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Connected")
+                        } else {
+                            Icon(Icons.Filled.Wifi, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Test Connection")
+                        }
                     }
                 }
 
@@ -205,7 +239,15 @@ fun EspMainSetupScreen(
                         enabled = !isLoading && !permanentPassSent && permanentPass.length == 8,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(if (permanentPassSent) "Saved ✅" else "Save Permanent Password")
+                        if (permanentPassSent) {
+                            Icon(Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Saved")
+                        } else {
+                            Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Save Permanent Password")
+                        }
                     }
                 }
 
@@ -243,6 +285,8 @@ fun EspMainSetupScreen(
                             enabled = !randomPassSent,
                             modifier = Modifier.weight(1f)
                         ) {
+                            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
                             Text("Generate")
                         }
 
@@ -262,10 +306,10 @@ fun EspMainSetupScreen(
                                         }
                                         EspSetupPrefs.setSavedRandomPassword(context, randomPass)
                                         randomPassSent = true
-                                        status = "Random password sent & saved to phone ✅"
+                                        status = "Random password sent & saved to phone"
                                         currentStep = 3
                                     } catch (e: Exception) {
-                                        status = "Failed to send random password ❌: ${e.message}"
+                                        status = "Failed to send random password: ${e.message}"
                                     }
                                     isLoading = false
                                 }
@@ -273,7 +317,15 @@ fun EspMainSetupScreen(
                             enabled = !isLoading && !randomPassSent && randomPass.isNotEmpty(),
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text(if (randomPassSent) "Sent ✅" else "Send & Save")
+                            if (randomPassSent) {
+                                Icon(Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Saved")
+                            } else {
+                                Icon(Icons.Outlined.Key, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Send & Save")
+                            }
                         }
                     }
                 }
@@ -303,10 +355,10 @@ fun EspMainSetupScreen(
                                         )
                                     }
                                     modulePaired = true
-                                    status = "Module paired successfully ✅"
+                                    status = ""
                                     currentStep = 4
                                 } catch (e: Exception) {
-                                    status = "Module pairing failed ❌: ${e.message}\n\nMake sure you're connected to the Module Wi-Fi."
+                                    status = "Module pairing failed: ${e.message}\n\nMake sure you're connected to the Module Wi-Fi."
                                 }
                                 isLoading = false
                             }
@@ -314,12 +366,25 @@ fun EspMainSetupScreen(
                         enabled = !isLoading && !modulePaired,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(if (modulePaired) "Paired ✅" else "Start Pairing")
+                        if (modulePaired) {
+                            Icon(Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Paired")
+                        } else {
+                            Icon(Icons.Outlined.Cable, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Start Pairing")
+                        }
                     }
                 }
 
-                // ── Step 4: Done ──
-                if (currentStep == 4) {
+                // ── Step 4: Done — Success Celebration ──
+                AnimatedVisibility(
+                    visible = currentStep == 4,
+                    enter = fadeIn() + scaleIn(
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+                    )
+                ) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
@@ -327,20 +392,85 @@ fun EspMainSetupScreen(
                         )
                     ) {
                         Column(
-                            modifier = Modifier.padding(20.dp),
+                            modifier = Modifier.padding(28.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
+                            // Animated bouncing celebration icon
+                            val scale by animateFloatAsState(
+                                targetValue = if (currentStep == 4) 1f else 0f,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessLow
+                                ),
+                                label = "celebrationScale"
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(80.dp)
+                                    .scale(scale)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(text = "🎉", fontSize = 40.sp)
+                            }
+
+                            Spacer(Modifier.height(16.dp))
+
                             Text(
                                 text = "Setup Complete!",
                                 style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center
                             )
-                            Spacer(Modifier.height(12.dp))
-                            Text("✅ ESP Main connected")
-                            Text("✅ Permanent password set")
-                            Text("✅ Random password saved")
-                            Text("✅ Module paired")
-                            Spacer(Modifier.height(16.dp))
+
+                            Spacer(Modifier.height(4.dp))
+
+                            Text(
+                                text = "Everything is configured and ready to go",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                textAlign = TextAlign.Center
+                            )
+
+                            Spacer(Modifier.height(20.dp))
+
+                            val summaryItems = listOf(
+                                Triple(Icons.Filled.Wifi, "ESP Main connected", true),
+                                Triple(Icons.Outlined.Shield, "Permanent password set", true),
+                                Triple(Icons.Outlined.Key, "Random password saved", true),
+                                Triple(Icons.Outlined.Cable, "Module paired", true),
+                            )
+                            summaryItems.forEach { (icon, label, _) ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Filled.CheckCircle,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(Modifier.width(10.dp))
+                                    Icon(
+                                        icon,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                            }
+
+                            Spacer(Modifier.height(20.dp))
+
                             Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
                                 Text("Back to Home")
                             }
@@ -375,39 +505,49 @@ fun EspMainSetupScreen(
     }
 }
 
+private data class StepDef(val label: String, val icon: ImageVector)
+
 @Composable
-private fun StepIndicator(currentStep: Int, labels: List<String>) {
+private fun StepIndicator(currentStep: Int, steps: List<StepDef>) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        labels.forEachIndexed { index, label ->
+        steps.forEachIndexed { index, step ->
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Surface(
-                    shape = MaterialTheme.shapes.small,
+                    shape = CircleShape,
                     color = when {
                         index < currentStep -> MaterialTheme.colorScheme.primary
                         index == currentStep -> MaterialTheme.colorScheme.primaryContainer
                         else -> MaterialTheme.colorScheme.surfaceVariant
                     },
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(32.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = if (index < currentStep) "✓" else "${index + 1}",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = when {
-                                index < currentStep -> MaterialTheme.colorScheme.onPrimary
-                                index == currentStep -> MaterialTheme.colorScheme.onPrimaryContainer
-                                else -> MaterialTheme.colorScheme.onSurfaceVariant
-                            }
-                        )
+                        if (index < currentStep) {
+                            Icon(
+                                Icons.Filled.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        } else {
+                            Icon(
+                                step.icon,
+                                contentDescription = null,
+                                tint = when {
+                                    index == currentStep -> MaterialTheme.colorScheme.onPrimaryContainer
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = label,
+                    text = step.label,
                     style = MaterialTheme.typography.labelSmall,
                     color = if (index <= currentStep)
                         MaterialTheme.colorScheme.onSurface
@@ -443,12 +583,32 @@ private fun StepCard(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = if (isComplete) "✅" else "Step ${stepNumber + 1}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(Modifier.width(8.dp))
+                if (isComplete) {
+                    Icon(
+                        Icons.Filled.CheckCircle,
+                        contentDescription = "Complete",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                } else {
+                    Surface(
+                        shape = CircleShape,
+                        color = if (isActive) MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.size(22.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "${stepNumber + 1}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isActive) MaterialTheme.colorScheme.onPrimaryContainer
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.width(10.dp))
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleMedium,
