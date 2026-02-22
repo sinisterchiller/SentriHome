@@ -193,7 +193,8 @@ fun StreamPage(
     var pendingOtp by remember { mutableStateOf("") }
     var showScheduleDialog by remember { mutableStateOf(false) }
     var showErrorLogsDialog by remember { mutableStateOf(false) }
-    // ESP32 setup dialogs
+    // ESP32 setup
+    var showEspSetupWizard by remember { mutableStateOf(false) }
     var showWifiDialog by remember { mutableStateOf(false) }
     var showPermanentPassDialog by remember { mutableStateOf(false) }
     var permanentPass by remember { mutableStateOf("") }
@@ -283,6 +284,15 @@ fun StreamPage(
                 }
             } catch (_: Exception) { }
         }
+    }
+
+    // Full-screen ESP setup wizard overlay
+    if (showEspSetupWizard) {
+        com.example.esp32pairingapp.setup.EspMainSetupScreen(
+            httpClient = httpClient,
+            onBack = { showEspSetupWizard = false }
+        )
+        return
     }
 
     ModalNavigationDrawer(
@@ -415,7 +425,17 @@ fun StreamPage(
                     modifier = androidx.compose.ui.Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                 )
 
-                // Test ESP32 Connection
+                // Full step-by-step ESP setup wizard
+                NavigationDrawerItem(
+                    label = { Text("ESP Setup Wizard") },
+                    selected = false,
+                    onClick = {
+                        showEspSetupWizard = true
+                        scope.launch { drawerState.close() }
+                    }
+                )
+
+                // Quick: Test ESP32 Connection
                 NavigationDrawerItem(
                     label = { Text("Test ESP32 Connection") },
                     selected = false,
@@ -432,28 +452,6 @@ fun StreamPage(
                                 errorMessage = "❌ ESP32 unreachable: ${e.message}"
                             }
                         }
-                    }
-                )
-
-                // Send WiFi Credentials
-                NavigationDrawerItem(
-                    label = { Text("Send WiFi Credentials") },
-                    selected = false,
-                    onClick = {
-                        showWifiDialog = true
-                        scope.launch { drawerState.close() }
-                    }
-                )
-
-                // Set Permanent Password
-                NavigationDrawerItem(
-                    label = { Text("Set Permanent Password") },
-                    selected = false,
-                    onClick = {
-                        permanentPass = ""
-                        permanentPassError = null
-                        showPermanentPassDialog = true
-                        scope.launch { drawerState.close() }
                     }
                 )
 
