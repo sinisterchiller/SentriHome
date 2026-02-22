@@ -1,7 +1,6 @@
 package com.example.esp32pairingapp
 
 import android.Manifest
-import kotlinx.coroutines.currentCoroutineContext
 import android.net.Network
 import android.content.pm.PackageManager
 import android.os.Build
@@ -13,7 +12,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -28,6 +26,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.example.esp32pairingapp.auth.LoginScreen
 import com.example.esp32pairingapp.network.CloudBackendPrefs
 import com.example.esp32pairingapp.network.EspHttpClient
 import com.example.esp32pairingapp.clips.HlsPlayerView
@@ -85,6 +84,7 @@ private const val ARMSTATUS_URL = "$BASE_URL/api/armstatus"
 class MainActivity : ComponentActivity() {
 
     private var hasLocationPermission by mutableStateOf(false)
+    private var isLoggedIn by mutableStateOf(false)
 
     // Request permissions (keep this; some devices require it for Wi-Fi related behavior)
     private val permissionLauncher =
@@ -105,16 +105,20 @@ class MainActivity : ComponentActivity() {
         handleAuthDeepLink(intent)
 
         hasLocationPermission = isLocationPermissionGranted()
+        isLoggedIn = CloudBackendPrefs.isLoggedIn(this)
 
         setContent {
             ESP32PairingAppTheme {
-                if (!hasLocationPermission) {
-                    PermissionScreen(
+                when {
+                    !hasLocationPermission -> PermissionScreen(
                         hasPermission = hasLocationPermission,
                         onRequestPermission = { requestRequiredPermissions() }
                     )
-                } else {
-                    WifiManualScreen(httpClient = httpClient)
+                    !isLoggedIn -> LoginScreen()
+                    else -> WifiManualScreen(
+                        httpClient = httpClient,
+                        onLogout = { isLoggedIn = false }
+                    )
                 }
             }
         }
@@ -153,14 +157,15 @@ class MainActivity : ComponentActivity() {
                 val token = uri.getQueryParameter("token")
                 if (!token.isNullOrBlank()) {
                     CloudBackendPrefs.setAuthToken(this, token)
+                    isLoggedIn = true
                     Log.d("MainActivity", "Cloud auth token saved")
                 }
                 if (!email.isNullOrBlank()) {
                     CloudBackendPrefs.setDriveAccountEmail(this, email)
                     Log.d("MainActivity", "Google Drive connected as: $email")
-                    Toast.makeText(this, "Google Drive connected as $email", Toast.LENGTH_LONG).show()
-                } else if (token.isNullOrBlank()) {
-                    Toast.makeText(this, "Google Drive connected", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Signed in as $email", Toast.LENGTH_LONG).show()
+                } else if (!token.isNullOrBlank()) {
+                    Toast.makeText(this, "Signed in successfully", Toast.LENGTH_LONG).show()
                 }
             }
             "auth-error" -> {
@@ -173,7 +178,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun WifiManualScreen(httpClient: EspHttpClient) {
+fun WifiManualScreen(httpClient: EspHttpClient, onLogout: () -> Unit = {}) {
     var status by remember { mutableStateOf("Manual connection mode:\n" +
             "1) Connect your phone to the ESP32 Wi-Fi in Android Settings\n" +
             "2) Return here and tap \"Test Connection\"") }
@@ -193,7 +198,8 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
         StreamPage(
             network = null,
             httpClient = httpClient,
-            onBack = { showStreamPage = false }
+            onBack = { showStreamPage = false },
+            onLogout = onLogout
         )
         return
     }
@@ -534,7 +540,8 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
 fun StreamPage(
     network: Network?,
     httpClient: com.example.esp32pairingapp.network.EspHttpClient,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onLogout: () -> Unit = {}
 ) {
     val deviceId = com.example.esp32pairingapp.network.ApiConfig.DEFAULT_DEVICE_ID
     var isLoadingStream by remember { mutableStateOf(false) }
@@ -715,6 +722,7 @@ fun StreamPage(
                                 CloudBackendPrefs.setAuthToken(context, null)
                                 CloudBackendPrefs.setDriveAccountEmail(context, null)
                                 driveAccountEmail = null
+                                Log.d("StreamPage", "Logged out from Drive")
                                 errorMessage = "Logged out from Google Drive"
                             } catch (e: Exception) {
                                 errorMessage = "Log out failed: ${e.message}"
