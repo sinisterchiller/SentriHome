@@ -438,16 +438,40 @@ fun StreamPage(
     httpClient: com.example.esp32pairingapp.network.EspHttpClient,
     onBack: () -> Unit
 ) {
+    val deviceId = com.example.esp32pairingapp.network.ApiConfig.DEFAULT_DEVICE_ID
     var isLoadingStream by remember { mutableStateOf(false) }
     var isStreaming by remember { mutableStateOf(false) }
+    var userStopped by remember { mutableStateOf(false) }
     var streamUrl by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var piBackendStatus by remember { mutableStateOf<String?>(null) }
+    var hlsLive by remember { mutableStateOf<Boolean?>(null) }
     var driveAccountEmail by remember { mutableStateOf<String?>(null) }
-
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val scrollState = rememberScrollState()
+
+    // Always poll cloud HLS status every 3s regardless of whether Start was pressed.
+    // This means if the Pi is already streaming, the player appears without needing to tap Start.
+    LaunchedEffect(deviceId) {
+        while (true) {
+            try {
+                val statusUrl = com.example.esp32pairingapp.network.ApiConfig.getStreamStatusUrl(deviceId)
+                val response = withContext(Dispatchers.IO) { httpClient.get(statusUrl, null) }
+                val json = JSONObject(response)
+                val live = json.optBoolean("live", false)
+                hlsLive = live
+                if (live && !isStreaming && !userStopped) isStreaming = true
+                if (!live && isStreaming) {
+                    isStreaming = false
+                    hlsLive = false
+                }
+            } catch (e: Exception) {
+                Log.d("StreamPage", "HLS status poll failed: ${e.message}")
+            }
+            delay(3000)
+        }
+    }
 
     // Cloud and Pi backend config (persisted).
     var showCloudDialog by remember { mutableStateOf(false) }
@@ -682,15 +706,25 @@ fun StreamPage(
                                     val status = json.optString("status", "error")
 
                                     if (status == "ok" || status == "success") {
+                                        userStopped = false
                                         isStreaming = true
+                                        hlsLive = null
                                         streamUrl = com.example.esp32pairingapp.network.ApiConfig
-                                            .getStreamPlaylistUrl("pi-1")
-                                        errorMessage = "✅ Stream started successfully"
+                                            .getStreamPlaylistUrl(deviceId)
+                                        errorMessage = "✅ Stream started. Waiting for segments..."
                                     } else {
                                         errorMessage = "⚠️ Start failed: ${json.optString("message", "Unknown error")}"
                                     }
                                 } catch (e: Exception) {
-                                    errorMessage = formatConnectionError(e, "Pi", com.example.esp32pairingapp.network.ApiConfig.getStartStreamUrl())
+                                    val errMsg = e.message ?: ""
+                                    if (errMsg.contains("409") || errMsg.contains("already running", ignoreCase = true)) {
+                                        // Stream already running on Pi — treat as success, the poller will pick it up
+                                        userStopped = false
+                                        isStreaming = true
+                                        errorMessage = "✅ Stream already running. Waiting for cloud segments..."
+                                    } else {
+                                        errorMessage = formatConnectionError(e, "Pi", com.example.esp32pairingapp.network.ApiConfig.getStartStreamUrl())
+                                    }
                                     Log.e("StreamPage", "Start stream error", e)
                                 } finally {
                                     isLoadingStream = false
@@ -722,7 +756,9 @@ fun StreamPage(
 
                                     Log.d("StreamPage", "Stop response: $response")
 
+                                    userStopped = true
                                     isStreaming = false
+                                    hlsLive = false
                                     streamUrl = null
                                     errorMessage = "⏹️ Stream stopped"
                                 } catch (e: Exception) {
@@ -788,13 +824,40 @@ fun StreamPage(
 
                 if (isStreaming) {
                     Spacer(Modifier.height(12.dp))
-                    val playlistUrl = com.example.esp32pairingapp.network.ApiConfig.getStreamPlaylistUrl("pi-1")
-                    HlsPlayerView(
-                        playlistUrl = playlistUrl,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(220.dp)
-                    )
+                    when {
+                        hlsLive == true -> {
+                            val playlistUrl = com.example.esp32pairingapp.network.ApiConfig.getStreamPlaylistUrl(deviceId)
+                            HlsPlayerView(
+                                playlistUrl = playlistUrl,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(220.dp)
+                            )
+                        }
+                        else -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(220.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    CircularProgressIndicator()
+                                    Spacer(Modifier.height(12.dp))
+                                    Text(
+                                        "Waiting for stream...",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                    )
+                                    Text(
+                                        "Ensure Pi can reach Cloud (CLOUD_BASE_URL in config.json)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
