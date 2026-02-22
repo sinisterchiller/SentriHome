@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.WifiFind
 import androidx.compose.material.icons.outlined.Cable
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Shield
@@ -43,6 +44,8 @@ import java.net.URLEncoder
 
 private const val ESP_BASE = "http://192.168.10.1"
 private const val HEALTH_URL = "$ESP_BASE/api/health"
+private const val NEWSSID_URL = "$ESP_BASE/api/newssid"
+private const val NEWPASS_URL = "$ESP_BASE/api/newpass"
 private const val PERMANENTPASS_URL = "$ESP_BASE/api/permanentpass"
 private const val ENCRYPTEDPASS_URL = "$ESP_BASE/api/encryptedpass"
 private const val MAINCONNECTION_URL = "$ESP_BASE/api/mainconnection"
@@ -57,23 +60,28 @@ fun EspMainSetupScreen(
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
-    // Step tracking: 0 = connect, 1 = permanent pass, 2 = random pass, 3 = module pair, 4 = done
+    // Steps: 0=connect, 1=wifi creds, 2=permanent pass, 3=random pass, 4=module pair, 5=done
     var currentStep by remember { mutableIntStateOf(0) }
     var status by remember { mutableStateOf("") }
 
     // Step 0: Connection
     var connectionOk by remember { mutableStateOf(false) }
 
-    // Step 1: Permanent password
+    // Step 1: Wi-Fi credentials
+    var wifiSsid by remember { mutableStateOf("") }
+    var wifiPassword by remember { mutableStateOf("") }
+    var wifiCredsSent by remember { mutableStateOf(false) }
+
+    // Step 2: Permanent password
     var permanentPass by remember { mutableStateOf("") }
     var permanentPassError by remember { mutableStateOf<String?>(null) }
     var permanentPassSent by remember { mutableStateOf(false) }
 
-    // Step 2: Random password
+    // Step 3: Random password
     var randomPass by remember { mutableStateOf("") }
     var randomPassSent by remember { mutableStateOf(false) }
 
-    // Step 3: Module pairing
+    // Step 4: Module pairing
     var modulePaired by remember { mutableStateOf(false) }
 
     var isLoading by remember { mutableStateOf(false) }
@@ -87,6 +95,7 @@ fun EspMainSetupScreen(
 
     val steps = listOf(
         StepDef("Connect", Icons.Filled.Wifi),
+        StepDef("Wi-Fi", Icons.Filled.WifiFind),
         StepDef("Permanent", Icons.Outlined.Shield),
         StepDef("Random", Icons.Outlined.Shuffle),
         StepDef("Module", Icons.Outlined.Cable),
@@ -151,6 +160,7 @@ fun EspMainSetupScreen(
                                     withContext(Dispatchers.IO) {
                                         httpClient.get(HEALTH_URL, network = null)
                                     }
+                                    delay(200)
                                     connectionOk = true
                                     status = "ESP Main connected"
                                     currentStep = 1
@@ -176,12 +186,87 @@ fun EspMainSetupScreen(
                     }
                 }
 
-                // ── Step 1: Set Permanent Password ──
+                // ── Step 1: Send Wi-Fi Credentials ──
                 StepCard(
                     stepNumber = 1,
+                    title = "Send Wi-Fi Credentials",
+                    subtitle = "Enter your home Wi-Fi SSID and password so the ESP can join your network.",
+                    isActive = currentStep == 1,
+                    isComplete = wifiCredsSent
+                ) {
+                    OutlinedTextField(
+                        value = wifiSsid,
+                        onValueChange = { wifiSsid = it },
+                        label = { Text("Wi-Fi SSID") },
+                        singleLine = true,
+                        enabled = !wifiCredsSent,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = wifiPassword,
+                        onValueChange = { wifiPassword = it },
+                        label = { Text("Wi-Fi Password") },
+                        singleLine = true,
+                        enabled = !wifiCredsSent,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(Modifier.height(8.dp))
+
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                isLoading = true
+                                status = "Sending Wi-Fi credentials..."
+                                try {
+                                    withContext(Dispatchers.IO) {
+                                        httpClient.post(
+                                            url = NEWSSID_URL,
+                                            body = "SSID=${URLEncoder.encode(wifiSsid.trim(), "UTF-8")}",
+                                            contentType = "application/x-www-form-urlencoded",
+                                            network = null
+                                        )
+                                        httpClient.post(
+                                            url = NEWPASS_URL,
+                                            body = "pass=${URLEncoder.encode(wifiPassword.trim(), "UTF-8")}",
+                                            contentType = "application/x-www-form-urlencoded",
+                                            network = null
+                                        )
+                                    }
+                                    delay(200)
+                                    wifiCredsSent = true
+                                    status = "Wi-Fi credentials sent"
+                                    currentStep = 2
+                                } catch (e: Exception) {
+                                    status = "Failed to send Wi-Fi credentials: ${e.message}"
+                                }
+                                isLoading = false
+                            }
+                        },
+                        enabled = !isLoading && !wifiCredsSent && wifiSsid.isNotBlank() && wifiPassword.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (wifiCredsSent) {
+                            Icon(Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Sent")
+                        } else {
+                            Icon(Icons.Filled.WifiFind, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Send Wi-Fi Credentials")
+                        }
+                    }
+                }
+
+                // ── Step 2: Set Permanent Password ──
+                StepCard(
+                    stepNumber = 2,
                     title = "Set Permanent Password",
                     subtitle = "Enter an 8-character password using: 0-9, A, B, C, D, #, *",
-                    isActive = currentStep == 1,
+                    isActive = currentStep == 2,
                     isComplete = permanentPassSent
                 ) {
                     OutlinedTextField(
@@ -227,11 +312,12 @@ fun EspMainSetupScreen(
                                             network = null
                                         )
                                     }
+                                    delay(200)
                                     permanentPassSent = true
-                                    status = "Permanent password set ✅"
-                                    currentStep = 2
+                                    status = "Permanent password set"
+                                    currentStep = 3
                                 } catch (e: Exception) {
-                                    status = "Failed to set permanent password ❌: ${e.message}"
+                                    status = "Failed to set permanent password: ${e.message}"
                                 }
                                 isLoading = false
                             }
@@ -251,12 +337,12 @@ fun EspMainSetupScreen(
                     }
                 }
 
-                // ── Step 2: Generate & Send Random Password ──
+                // ── Step 3: Generate & Send Random Password ──
                 StepCard(
-                    stepNumber = 2,
+                    stepNumber = 3,
                     title = "Random Password",
                     subtitle = "Generate a random password, send it to the ESP, and save it to your phone for module pairing.",
-                    isActive = currentStep == 2,
+                    isActive = currentStep == 3,
                     isComplete = randomPassSent
                 ) {
                     if (randomPass.isNotEmpty()) {
@@ -305,9 +391,10 @@ fun EspMainSetupScreen(
                                             )
                                         }
                                         EspSetupPrefs.setSavedRandomPassword(context, randomPass)
+                                        delay(200)
                                         randomPassSent = true
                                         status = "Random password sent & saved to phone"
-                                        currentStep = 3
+                                        currentStep = 4
                                     } catch (e: Exception) {
                                         status = "Failed to send random password: ${e.message}"
                                     }
@@ -330,12 +417,12 @@ fun EspMainSetupScreen(
                     }
                 }
 
-                // ── Step 3: Pair Module ──
+                // ── Step 4: Pair Module ──
                 StepCard(
-                    stepNumber = 3,
+                    stepNumber = 4,
                     title = "Pair Module",
                     subtitle = "Go to your phone's Wi-Fi settings and connect to the ESP32 Module network. Then return here and tap Start Pairing.",
-                    isActive = currentStep == 3,
+                    isActive = currentStep == 4,
                     isComplete = modulePaired
                 ) {
                     Button(
@@ -354,10 +441,11 @@ fun EspMainSetupScreen(
                                             network = null
                                         )
                                     }
+                                    delay(200)
                                     if (response.trim().equals("OK", ignoreCase = true)) {
                                         modulePaired = true
                                         status = ""
-                                        currentStep = 4
+                                        currentStep = 5
                                     } else {
                                         status = "Module responded but pairing was not confirmed.\nResponse: ${response.take(200)}"
                                     }
@@ -384,7 +472,7 @@ fun EspMainSetupScreen(
 
                 // ── Step 4: Done — Success Celebration ──
                 AnimatedVisibility(
-                    visible = currentStep == 4,
+                    visible = currentStep == 5,
                     enter = fadeIn() + scaleIn(
                         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
                     )
@@ -401,7 +489,7 @@ fun EspMainSetupScreen(
                         ) {
                             // Animated bouncing celebration icon
                             val scale by animateFloatAsState(
-                                targetValue = if (currentStep == 4) 1f else 0f,
+                                targetValue = if (currentStep == 5) 1f else 0f,
                                 animationSpec = spring(
                                     dampingRatio = Spring.DampingRatioMediumBouncy,
                                     stiffness = Spring.StiffnessLow
@@ -441,6 +529,7 @@ fun EspMainSetupScreen(
 
                             val summaryItems = listOf(
                                 Triple(Icons.Filled.Wifi, "ESP Main connected", true),
+                                Triple(Icons.Filled.WifiFind, "Wi-Fi credentials sent", true),
                                 Triple(Icons.Outlined.Shield, "Permanent password set", true),
                                 Triple(Icons.Outlined.Key, "Random password saved", true),
                                 Triple(Icons.Outlined.Cable, "Module paired", true),
