@@ -1,6 +1,9 @@
 package com.example.esp32pairingapp.network
 
 object ApiConfig {
+    /** Device ID for cloud HLS stream/events. Must match Pi config (config.json DEVICE_ID, default "pi-1"). */
+    const val DEFAULT_DEVICE_ID = "pi-1"
+
     // Default base URLs.
     // Cloud backend (port 3001). 10.0.2.2 maps to the host machine when running on Android emulator.
     // On a real device you'll typically override this at runtime via setCloudBaseUrlOverride().
