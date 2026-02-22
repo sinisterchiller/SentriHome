@@ -207,6 +207,10 @@ fun StreamPage(
     var permanentPass by remember { mutableStateOf("") }
     var permanentPassError by remember { mutableStateOf<String?>(null) }
 
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val scrollState = rememberScrollState()
+
     // Motion alert state
     var activeMotionAlert  by remember { mutableStateOf<MotionAlertInfo?>(null) }
     var lastShownAlertId   by remember { mutableStateOf<String?>(null) }
@@ -223,10 +227,6 @@ fun StreamPage(
             notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
-
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-    val scrollState = rememberScrollState()
 
     // Always poll cloud HLS status every 3s regardless of whether Start was pressed.
     LaunchedEffect(deviceId) {
