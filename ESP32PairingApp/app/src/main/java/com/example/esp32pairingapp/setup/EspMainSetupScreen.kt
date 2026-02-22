@@ -346,7 +346,7 @@ fun EspMainSetupScreen(
                                 try {
                                     val passToSend = EspSetupPrefs.getSavedRandomPassword(context)
                                         ?: randomPass
-                                    withContext(Dispatchers.IO) {
+                                    val response = withContext(Dispatchers.IO) {
                                         httpClient.post(
                                             url = MAINCONNECTION_URL,
                                             body = "pass=${URLEncoder.encode(passToSend, "UTF-8")}",
@@ -354,9 +354,13 @@ fun EspMainSetupScreen(
                                             network = null
                                         )
                                     }
-                                    modulePaired = true
-                                    status = ""
-                                    currentStep = 4
+                                    if (response.trim().equals("OK", ignoreCase = true)) {
+                                        modulePaired = true
+                                        status = ""
+                                        currentStep = 4
+                                    } else {
+                                        status = "Module responded but pairing was not confirmed.\nResponse: ${response.take(200)}"
+                                    }
                                 } catch (e: Exception) {
                                     status = "Module pairing failed: ${e.message}\n\nMake sure you're connected to the Module Wi-Fi."
                                 }
