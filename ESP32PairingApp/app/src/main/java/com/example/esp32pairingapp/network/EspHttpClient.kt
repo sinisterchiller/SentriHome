@@ -38,10 +38,11 @@ class EspHttpClient {
      * Performs HTTP GET request
      * @param url The full URL to request
      * @param network Optional network to bind request to (for ESP32 direct connection)
+     * @param authToken Optional Bearer token for cloud backend (Authorization: Bearer &lt;token&gt;)
      * @return Response body as String
      */
     @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
-    fun get(url: String, network: Network? = null): String {
+    fun get(url: String, network: Network? = null, authToken: String? = null): String {
         Log.d("EspHttpClient", "GET request to: $url")
 
         val urlObj = URL(url)
@@ -56,6 +57,9 @@ class EspHttpClient {
             connection.connectTimeout = 10_000
             connection.readTimeout = 10_000
             connection.setRequestProperty("Accept", "application/json")
+            if (!authToken.isNullOrBlank()) {
+                connection.setRequestProperty("Authorization", "Bearer $authToken")
+            }
 
             val responseCode = connection.responseCode
             Log.d("EspHttpClient", "Response code: $responseCode")
@@ -79,10 +83,17 @@ class EspHttpClient {
      * @param body The request body (JSON string)
      * @param contentType Content-Type header (default: application/json)
      * @param network Optional network to bind request to (for ESP32 direct connection)
+     * @param authToken Optional Bearer token for cloud backend
      * @return Response body as String
      */
     @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
-    fun post(url: String, body: String = "", contentType: String = "application/json", network: Network? = null): String {
+    fun post(
+        url: String,
+        body: String = "",
+        contentType: String = "application/json",
+        network: Network? = null,
+        authToken: String? = null
+    ): String {
         Log.d("EspHttpClient", "POST request to: $url")
         Log.d("EspHttpClient", "Body: $body")
 
@@ -99,6 +110,9 @@ class EspHttpClient {
             connection.readTimeout = 10_000
             connection.setRequestProperty("Content-Type", contentType)
             connection.setRequestProperty("Accept", "application/json")
+            if (!authToken.isNullOrBlank()) {
+                connection.setRequestProperty("Authorization", "Bearer $authToken")
+            }
             connection.doOutput = true
 
             if (body.isNotEmpty()) {

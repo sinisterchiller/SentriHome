@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.esp32pairingapp.network.ApiConfig
+import com.example.esp32pairingapp.network.CloudBackendPrefs
 import com.example.esp32pairingapp.network.EspHttpClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -38,12 +39,13 @@ data class VideoClip(
 )
 
 /**
- * Load clips from cloud backend GET /api/events.
- * Returns list of VideoClip; same parsing as original StreamPage logic.
+ * Load clips from cloud backend GET /api/events. Requires auth token (user must be logged in).
+ * Returns list of VideoClip; URLs include ?token= so thumbnails and Play work.
  */
-suspend fun loadClipsFromCloud(httpClient: EspHttpClient): List<VideoClip> {
+suspend fun loadClipsFromCloud(httpClient: EspHttpClient, authToken: String?): List<VideoClip> {
+    if (authToken.isNullOrBlank()) return emptyList()
     return withContext(Dispatchers.IO) {
-        val response = httpClient.get(ApiConfig.getEventsUrl(), null)
+        val response = httpClient.get(ApiConfig.getEventsUrl(), null, authToken)
         Log.d("SavedClips", "Events response: ${response.take(500)}")
         val eventsArray: JSONArray = runCatching {
             if (response.trimStart().startsWith("[")) {
@@ -60,6 +62,7 @@ suspend fun loadClipsFromCloud(httpClient: EspHttpClient): List<VideoClip> {
             Log.e("SavedClips", "Failed to parse events", it)
             JSONArray()
         }
+        val tokenSuffix = "?token=${java.net.URLEncoder.encode(authToken, "UTF-8")}"
         (0 until eventsArray.length()).map { i ->
             val eventObj = eventsArray.getJSONObject(i)
             val id = eventObj.optString("_id", eventObj.optString("id", ""))
@@ -71,8 +74,8 @@ suspend fun loadClipsFromCloud(httpClient: EspHttpClient): List<VideoClip> {
                 filename = filename,
                 timestamp = timestamp,
                 deviceId = deviceId,
-                thumbnailUrl = if (id.isNotBlank()) ApiConfig.getClipThumbnailUrl(id) else null,
-                videoUrl = if (id.isNotBlank()) ApiConfig.getClipStreamUrl(id) else null
+                thumbnailUrl = if (id.isNotBlank()) ApiConfig.getClipThumbnailUrl(id) + tokenSuffix else null,
+                videoUrl = if (id.isNotBlank()) ApiConfig.getClipStreamUrl(id) + tokenSuffix else null
             )
         }
     }
@@ -140,7 +143,7 @@ private fun RemoteThumbnail(
 
 /**
  * Shared content: "Load Clips from Drive" button and list of clips with thumbnails and Play.
- * Can be embedded in StreamPage or used inside SavedClipsScreen.
+ * Only loads data when user is logged in (has cloud auth token).
  */
 @Composable
 fun SavedClipsContent(
@@ -153,6 +156,8 @@ fun SavedClipsContent(
     var isLoading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val authToken = CloudBackendPrefs.getAuthToken(context)
+    val isLoggedIn = !authToken.isNullOrBlank()
 
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -169,13 +174,22 @@ fun SavedClipsContent(
                 Spacer(Modifier.height(8.dp))
             }
 
+            if (!isLoggedIn) {
+                Text(
+                    "Sign in with Google Drive to view your clips.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+
             Button(
                 onClick = {
                     scope.launch {
                         isLoading = true
                         onError("")
                         try {
-                            clips = loadClipsFromCloud(httpClient)
+                            clips = loadClipsFromCloud(httpClient, CloudBackendPrefs.getAuthToken(context))
                             onError("✅ Loaded ${clips.size} events")
                         } catch (e: Exception) {
                             onError("❌ Failed to load clips: ${e.message}")
@@ -185,7 +199,7 @@ fun SavedClipsContent(
                         }
                     }
                 },
-                enabled = !isLoading,
+                enabled = !isLoading && isLoggedIn,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(if (isLoading) "Loading..." else "🔄 Load Clips from Drive")

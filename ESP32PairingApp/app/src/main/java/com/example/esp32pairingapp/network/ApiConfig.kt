@@ -1,13 +1,10 @@
 package com.example.esp32pairingapp.network
 
 object ApiConfig {
-    // Default base URLs.
-    // Cloud backend (port 3001). 10.0.2.2 maps to the host machine when running on Android emulator.
-    // On a real device you'll typically override this at runtime via setCloudBaseUrlOverride().
-    private val CLOUD_BASE_URL_DEFAULT = "http://10.0.2.2:3001"
-
-    // Pi backend (port 4000)
-    private val PI_BASE_URL_DEFAULT = "http://10.0.2.2:4000"
+    // Default base URLs come from BuildConfig (set via local.properties or env vars; see app/build.gradle.kts).
+    // On a real device you can still override at runtime via setCloudBaseUrlOverride() / setPiBaseUrlOverride().
+    private val CLOUD_BASE_URL_DEFAULT = com.example.esp32pairingapp.BuildConfig.CLOUD_BASE_URL_DEFAULT
+    private val PI_BASE_URL_DEFAULT = com.example.esp32pairingapp.BuildConfig.PI_BASE_URL_DEFAULT
 
     // Runtime overrides (e.g., user-entered IP/host)
     @Volatile
@@ -31,6 +28,8 @@ object ApiConfig {
     object CloudEndpoints {
         const val HEALTH = "/api/health"
         const val STATUS = "/status"
+        const val AUTH_ME = "/api/auth/me"
+        const val AUTH_LOGOUT = "/api/auth/logout"
         const val EVENTS = "/api/events"
         const val CLIPS = "/api/clips"
         const val EVENTS_UPLOAD = "/api/events/upload"
@@ -80,6 +79,8 @@ object ApiConfig {
         "${cloudBaseUrl()}${CloudEndpoints.STREAM_STATUS}/$deviceId"
 
     fun getClearAllUrl() = "${cloudBaseUrl()}${CloudEndpoints.CLEAR_ALL}"
+    fun getAuthMeUrl() = "${cloudBaseUrl()}${CloudEndpoints.AUTH_ME}"
+    fun getAuthLogoutUrl() = "${cloudBaseUrl()}${CloudEndpoints.AUTH_LOGOUT}"
 
     // Pi Backend URLs (port 4000)
     fun getPiHealthUrl() = "${piBaseUrl()}${PiEndpoints.HEALTH}"

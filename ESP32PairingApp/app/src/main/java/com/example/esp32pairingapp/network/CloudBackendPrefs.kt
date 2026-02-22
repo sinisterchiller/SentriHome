@@ -15,6 +15,8 @@ import android.content.Context
 object CloudBackendPrefs {
     private const val PREFS_NAME = "cloud_backend_prefs"
     private const val KEY_CLOUD_HOST_INPUT = "cloud_host_input"
+    private const val KEY_DRIVE_ACCOUNT_EMAIL = "drive_account_email"
+    private const val KEY_AUTH_TOKEN = "cloud_auth_token"
 
     fun getRawHostInput(context: Context): String? {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -25,6 +27,29 @@ object CloudBackendPrefs {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putString(KEY_CLOUD_HOST_INPUT, raw.trim()).apply()
     }
+
+    fun getDriveAccountEmail(context: Context): String? {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_DRIVE_ACCOUNT_EMAIL, null)?.takeIf { it.isNotBlank() }
+    }
+
+    fun setDriveAccountEmail(context: Context, email: String?) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString(KEY_DRIVE_ACCOUNT_EMAIL, email ?: "").apply()
+    }
+
+    fun getAuthToken(context: Context): String? {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_AUTH_TOKEN, null)?.takeIf { it.isNotBlank() }
+    }
+
+    fun setAuthToken(context: Context, token: String?) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString(KEY_AUTH_TOKEN, token ?: "").apply()
+    }
+
+    /** True if we have a token (user is logged in for cloud/Drive). */
+    fun isLoggedIn(context: Context): Boolean = !getAuthToken(context).isNullOrBlank()
 
     /** Returns a normalized base URL like http://192.168.1.50:3001 */
     fun computeCloudBaseUrl(rawInput: String): String {

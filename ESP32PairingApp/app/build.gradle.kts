@@ -44,6 +44,20 @@ android {
             "\"${localProperties.getProperty("esp32.default.password") ?: "12345678"}\""
         )
 
+        // Cloud backend (port 3001). Set cloud.base.url in local.properties or CLOUD_BASE_URL env var.
+        buildConfigField(
+            "String",
+            "CLOUD_BASE_URL_DEFAULT",
+            "\"${localProperties.getProperty("cloud.base.url") ?: System.getenv("CLOUD_BASE_URL") ?: "http://10.0.2.2:3001"}\""
+        )
+
+        // Pi backend (port 4000). Set pi.base.url in local.properties or PI_BASE_URL env var.
+        buildConfigField(
+            "String",
+            "PI_BASE_URL_DEFAULT",
+            "\"${localProperties.getProperty("pi.base.url") ?: System.getenv("PI_BASE_URL") ?: "http://10.0.2.2:4000"}\""
+        )
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

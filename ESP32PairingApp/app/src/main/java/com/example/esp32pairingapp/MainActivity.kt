@@ -14,7 +14,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.rememberCoroutineScope
@@ -22,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.esp32pairingapp.network.CloudBackendPrefs
@@ -43,7 +46,10 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
+import android.content.Intent
+import android.net.Uri
 import androidx.annotation.RequiresApi
+import android.widget.Toast
 import kotlin.collections.isNotEmpty
 import kotlin.collections.take
 import androidx.compose.material3.FilterChip
@@ -85,6 +91,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        handleAuthDeepLink(intent)
+
         hasLocationPermission = isLocationPermissionGranted()
 
         setContent {
@@ -117,6 +125,39 @@ class MainActivity : ComponentActivity() {
         } else {
             permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION))
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAuthDeepLink(intent)
+    }
+
+    private fun handleAuthDeepLink(intent: Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme != "home-security") return
+        when (uri.host) {
+            "auth-success" -> {
+                val email = uri.getQueryParameter("email")
+                val token = uri.getQueryParameter("token")
+                if (!token.isNullOrBlank()) {
+                    CloudBackendPrefs.setAuthToken(this, token)
+                    Log.d("MainActivity", "Cloud auth token saved")
+                }
+                if (!email.isNullOrBlank()) {
+                    CloudBackendPrefs.setDriveAccountEmail(this, email)
+                    Log.d("MainActivity", "Google Drive connected as: $email")
+                    Toast.makeText(this, "Google Drive connected as $email", Toast.LENGTH_LONG).show()
+                } else if (token.isNullOrBlank()) {
+                    Toast.makeText(this, "Google Drive connected", Toast.LENGTH_LONG).show()
+                }
+            }
+            "auth-error" -> {
+                val msg = uri.getQueryParameter("msg") ?: "OAuth failed"
+                Toast.makeText(this, "Drive auth failed: $msg", Toast.LENGTH_LONG).show()
+            }
+        }
+        intent.setData(null)
     }
 }
 
@@ -402,8 +443,11 @@ fun StreamPage(
     var streamUrl by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var piBackendStatus by remember { mutableStateOf<String?>(null) }
+    var driveAccountEmail by remember { mutableStateOf<String?>(null) }
+
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val scrollState = rememberScrollState()
 
     // Cloud and Pi backend config (persisted).
     var showCloudDialog by remember { mutableStateOf(false) }
@@ -436,7 +480,7 @@ fun StreamPage(
         if (piSaved.isNullOrBlank()) showPiDialog = true
         else if (cloudSaved.isNullOrBlank()) showCloudDialog = true
 
-        // Check Pi backend connectivity. Use null network so we reach Pi on LAN (not via ESP32).
+        // Check Pi backend connectivity.
         scope.launch {
             try {
                 val piUrl = com.example.esp32pairingapp.network.ApiConfig.getPiHealthUrl()
@@ -448,12 +492,31 @@ fun StreamPage(
                 Log.e("StreamPage", "Pi check failed", e)
             }
         }
+
+        // Load saved Drive email; if we have a token, refresh from /api/auth/me
+        driveAccountEmail = CloudBackendPrefs.getDriveAccountEmail(context)
+        val token = CloudBackendPrefs.getAuthToken(context)
+        if (!token.isNullOrBlank()) {
+            try {
+                val response = withContext(Dispatchers.IO) {
+                    httpClient.get(com.example.esp32pairingapp.network.ApiConfig.getAuthMeUrl(), null, token)
+                }
+                val json = org.json.JSONObject(response)
+                val email = json.optString("email", "").takeIf { it.isNotBlank() }
+                if (email != null) {
+                    driveAccountEmail = email
+                    CloudBackendPrefs.setDriveAccountEmail(context, email)
+                    Log.d("StreamPage", "Drive logged in as: $email")
+                }
+            } catch (_: Exception) { }
+        }
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
+            .verticalScroll(scrollState)
     ) {
         // Header with back button
         Row(
@@ -482,33 +545,86 @@ fun StreamPage(
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = if (network != null) "✅ Connected to ESP32 Network" else "📡 Using localhost backend",
+                    text = if (network != null) "✅ Connected to ESP32 Network" else "📡 Backend",
                     style = MaterialTheme.typography.bodyMedium
                 )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "Cloud: ${com.example.esp32pairingapp.network.ApiConfig.getCloudBaseUrl()}",
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "Pi: ${com.example.esp32pairingapp.network.ApiConfig.getPiBaseUrl()}",
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (!driveAccountEmail.isNullOrBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "Drive: logged in as $driveAccountEmail",
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Cloud: ${com.example.esp32pairingapp.network.ApiConfig.getCloudBaseUrl()}",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        Text(
-                            text = "Pi: ${com.example.esp32pairingapp.network.ApiConfig.getPiBaseUrl()}",
-                            style = MaterialTheme.typography.bodySmall
-                        )
+                    Button(onClick = { showCloudDialog = true }) {
+                        Text("Edit Cloud")
                     }
-                    Spacer(Modifier.width(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { showCloudDialog = true }) {
-                            Text("Edit Cloud")
-                        }
-                        Button(onClick = { showPiDialog = true }) {
-                            Text("Edit Pi")
-                        }
+                    Button(onClick = { showPiDialog = true }) {
+                        Text("Edit Pi")
                     }
+                }
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        val authUrl = com.example.esp32pairingapp.network.ApiConfig.getCloudBaseUrl() + "/auth/google"
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)))
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Connect Google Drive")
+                }
+                Button(
+                    onClick = {
+                        scope.launch {
+                            try {
+                                val token = CloudBackendPrefs.getAuthToken(context)
+                                if (!token.isNullOrBlank()) {
+                                    withContext(Dispatchers.IO) {
+                                        httpClient.post(
+                                            com.example.esp32pairingapp.network.ApiConfig.getAuthLogoutUrl(),
+                                            "",
+                                            "application/json",
+                                            null,
+                                            token
+                                        )
+                                    }
+                                }
+                                CloudBackendPrefs.setAuthToken(context, null)
+                                CloudBackendPrefs.setDriveAccountEmail(context, null)
+                                driveAccountEmail = null
+                                errorMessage = "Logged out from Google Drive"
+                                Log.d("StreamPage", "Logged out from Drive")
+                            } catch (e: Exception) {
+                                errorMessage = "Log out failed: ${e.message}"
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    )
+                ) {
+                    Text("Log out from Google Drive")
                 }
             }
         }
@@ -692,7 +808,6 @@ fun StreamPage(
         )
 
         // Status/Error message display
-        // Status/Error message display
         if (errorMessage != null) {
             Spacer(Modifier.height(16.dp))
             Card(
@@ -709,7 +824,9 @@ fun StreamPage(
                 Text(
                     text = errorMessage!!,
                     modifier = Modifier.padding(16.dp),
-                    style = MaterialTheme.typography.bodyMedium
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 10,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }

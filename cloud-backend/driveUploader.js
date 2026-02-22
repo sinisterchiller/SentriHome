@@ -1,14 +1,19 @@
 import fs from "fs";
 import path from "path";
 import { google } from "googleapis";
-import { getAuthorizedClient } from "./googleAuth.js";
+import { getAuthorizedClient, getAuthorizedClientForUser } from "./googleAuth.js";
 import { Event } from "./models/Event.js";
 
-export async function uploadToDrive(filePath, deviceId, type = "video") {
-  const filename = path.basename(filePath);
-  console.log(`📤 [Drive] Uploading: ${filename} (deviceId=${deviceId}, type=${type})`);
+function getDriveClient(ownerEmail) {
+  if (ownerEmail) return getAuthorizedClientForUser(ownerEmail);
+  return getAuthorizedClient();
+}
 
-  const auth = getAuthorizedClient();
+export async function uploadToDrive(filePath, deviceId, type = "video", ownerEmail = null) {
+  const filename = path.basename(filePath);
+  console.log(`📤 [Drive] Uploading: ${filename} (deviceId=${deviceId}, type=${type}, owner=${ownerEmail || "legacy"})`);
+
+  const auth = getDriveClient(ownerEmail);
   const drive = google.drive({ version: "v3", auth });
 
   const mimeType = type === "thumbnail" ? "image/jpeg" : "video/mp4";
@@ -37,10 +42,10 @@ export async function uploadToDrive(filePath, deviceId, type = "video") {
   return response.data;
 }
 
-export async function handleEventUpload(filePath, deviceId, type) {
+export async function handleEventUpload(filePath, deviceId, type, ownerEmail = null) {
   let driveData;
   try {
-    driveData = await uploadToDrive(filePath, deviceId, type);
+    driveData = await uploadToDrive(filePath, deviceId, type, ownerEmail);
   } catch (err) {
     console.error(`❌ [Drive] Upload failed: ${path.basename(filePath)} — ${err.message}`);
     throw err;
@@ -54,18 +59,21 @@ export async function handleEventUpload(filePath, deviceId, type) {
     
     if (existingEvent && existingEvent.driveFileId === "pending") {
       // Update the placeholder event with video info
+      const update = {
+        driveFileId: driveData.id,
+        driveLink: driveData.webViewLink,
+        status: "ready",
+      };
+      if (ownerEmail) update.ownerEmail = ownerEmail;
       event = await Event.findOneAndUpdate(
         { filename: path.basename(filePath) },
-        {
-          driveFileId: driveData.id,
-          driveLink: driveData.webViewLink,
-          status: "ready",
-        },
+        update,
         { new: true }
       );
     } else {
       // Create new event when video is uploaded
       event = await Event.create({
+        ownerEmail: ownerEmail || undefined,
         deviceId,
         filename: path.basename(filePath),
         driveFileId: driveData.id,
@@ -91,6 +99,7 @@ export async function handleEventUpload(filePath, deviceId, type) {
     // If no existing event found, create a placeholder
     if (!event) {
       event = await Event.create({
+        ownerEmail: ownerEmail || undefined,
         deviceId,
         filename: videoFilename, // Use the expected video filename
         driveFileId: "pending", // Will be updated when video uploads
