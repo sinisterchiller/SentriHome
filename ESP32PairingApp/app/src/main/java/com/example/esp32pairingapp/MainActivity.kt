@@ -184,6 +184,7 @@ fun WifiManualScreen(httpClient: EspHttpClient, onLogout: () -> Unit = {}) {
     var permanentPassError by remember { mutableStateOf<String?>(null) }
     var savedRandomPass by remember { mutableStateOf("") }
     var showModulePairingDialog by remember { mutableStateOf(false) }
+    var showEspMainSetup by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
 
@@ -200,6 +201,13 @@ fun WifiManualScreen(httpClient: EspHttpClient, onLogout: () -> Unit = {}) {
         SavedClipsScreen(
             httpClient = httpClient,
             onBack = { showSavedClipsScreen = false }
+        )
+        return
+    }
+    if (showEspMainSetup) {
+        com.example.esp32pairingapp.setup.EspMainSetupScreen(
+            httpClient = httpClient,
+            onBack = { showEspMainSetup = false }
         )
         return
     }
@@ -320,6 +328,15 @@ fun WifiManualScreen(httpClient: EspHttpClient, onLogout: () -> Unit = {}) {
 
         if (showScheduleSection) {
             ScheduleSection(httpClient = httpClient, onStatus = { status = it })
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        Button(
+            onClick = { showEspMainSetup = true },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("ESP Main Setup")
         }
 
         Spacer(Modifier.height(8.dp))
