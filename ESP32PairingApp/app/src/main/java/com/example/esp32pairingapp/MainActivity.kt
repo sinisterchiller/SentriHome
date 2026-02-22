@@ -64,6 +64,7 @@ private const val NEWPASS_URL = "$BASE_URL/api/newpass"
 private const val ENCRYPTEDPASS_URL = "$BASE_URL/api/encryptedpass"
 
 private const val ONETIMEPASS_URL = "$BASE_URL/api/onetimepass"
+private const val MAINCONNECTION_URL = "$BASE_URL/api/mainconnection"
 private const val WIFISTATUS_URL = "$BASE_URL/api/wifistatus"
 private const val POLL_INTERVAL_MS = 750L
 private const val POLL_TIMEOUT_MS = 60_000L
@@ -172,6 +173,8 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
     var pendingOtp by remember { mutableStateOf("") }
     var showOtpDialog by remember { mutableStateOf(false) }
     var showScheduleSection by remember { mutableStateOf(false) }
+    var savedRandomPass by remember { mutableStateOf("") }
+    var showModulePairingDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
 
@@ -269,6 +272,22 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
         }
         Spacer(Modifier.height(8.dp))
 
+        Button(
+            onClick = { showModulePairingDialog = true },
+            enabled = savedRandomPass.isNotEmpty(),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Pair Module")
+        }
+        if (savedRandomPass.isEmpty()) {
+            Text(
+                text = "Send WiFi Credentials first to enable module pairing",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+
 // Toggle schedule section visibility
         Button(
             onClick = { showScheduleSection = !showScheduleSection },
@@ -353,7 +372,6 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
                                 contentType = "application/x-www-form-urlencoded",
                                 network = null
                             )
-                            // Send encrypted password
                             val generatedPass = PasswordGenerator.generate()
                             httpClient.post(
                                 url = ENCRYPTEDPASS_URL,
@@ -361,6 +379,7 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
                                 contentType = "application/x-www-form-urlencoded",
                                 network = null
                             )
+                            savedRandomPass = generatedPass
                         }
 
 
@@ -426,6 +445,53 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
                     pendingOtp = ""
                     status = "OTP cancelled. Resend credentials to generate a new OTP."
                 }) { Text("No") }
+            }
+        )
+    }
+
+    if (showModulePairingDialog) {
+        AlertDialog(
+            onDismissRequest = { showModulePairingDialog = false },
+            title = { Text("Pair Module") },
+            text = {
+                Column {
+                    Text(
+                        text = "1. Go to your phone's Wi-Fi settings\n" +
+                                "2. Connect to the ESP32 Module network\n" +
+                                "3. Return here and tap \"Start Pairing\"",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "This will send the saved random password to the module to complete pairing.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    showModulePairingDialog = false
+                    scope.launch {
+                        status = "Pairing module..."
+                        try {
+                            withContext(Dispatchers.IO) {
+                                httpClient.post(
+                                    url = MAINCONNECTION_URL,
+                                    body = "pass=${URLEncoder.encode(savedRandomPass, "UTF-8")}",
+                                    contentType = "application/x-www-form-urlencoded",
+                                    network = null
+                                )
+                            }
+                            status = "Module paired successfully ✅"
+                        } catch (e: Exception) {
+                            status = "Module pairing failed ❌: ${e.message}"
+                        }
+                    }
+                }) { Text("Start Pairing") }
+            },
+            dismissButton = {
+                Button(onClick = { showModulePairingDialog = false }) { Text("Cancel") }
             }
         )
     }
