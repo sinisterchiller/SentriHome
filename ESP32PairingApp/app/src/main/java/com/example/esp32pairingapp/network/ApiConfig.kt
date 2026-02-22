@@ -42,6 +42,8 @@ object ApiConfig {
         const val NEW_SSID = "/api/newssid"
         const val NEW_PASS = "/api/newpass"
         const val WIFI_STATUS = "/api/wifistatus"
+        const val MOTION_LATEST = "/api/motion/latest"
+        const val MOTION_ACKNOWLEDGE = "/api/motion"  // + "/{id}/acknowledge"
     }
 
     // Pi Backend Endpoints (port 4000)
@@ -97,6 +99,13 @@ object ApiConfig {
     // For custom endpoints
     fun buildCloudUrl(endpoint: String) = "${cloudBaseUrl()}$endpoint"
     fun buildPiUrl(endpoint: String) = "${piBaseUrl()}$endpoint"
+
+    /** GET /api/motion/latest — poll for newest unacknowledged motion alert */
+    fun getLatestMotionAlertUrl() = "${cloudBaseUrl()}${CloudEndpoints.MOTION_LATEST}"
+
+    /** POST /api/motion/{alertId}/acknowledge */
+    fun getAcknowledgeMotionUrl(alertId: String) =
+        "${cloudBaseUrl()}${CloudEndpoints.MOTION_ACKNOWLEDGE}/$alertId/acknowledge"
 
     // Get base URLs (useful for debugging)
     fun getCloudBaseUrl() = cloudBaseUrl()

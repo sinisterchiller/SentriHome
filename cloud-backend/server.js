@@ -17,6 +17,7 @@ import { requireAuth, requireAuthOrQueryToken, createToken, invalidateToken } fr
 import { connectMongo } from "./mongo.js";
 import { Event } from "./models/Event.js";
 import { Device } from "./models/Device.js";
+import { MotionAlert } from "./models/MotionAlert.js";
 import { uploadToS3, getPresignedUrl, pruneOldSegments } from "./s3Client.js";
 import { getHlsCache } from "./hlsCache.js";
 
@@ -374,6 +375,99 @@ app.get("/api/clips/:eventId/thumbnail", requireAuthOrQueryToken, async (req, re
   }
   const url = await getCachedPresignedUrl(event.thumbnailS3Key);
   res.redirect(302, url);
+});
+
+/* =========================
+   Motion alerts (Pi → Cloud → App)
+========================= */
+
+/**
+ * POST /api/motion
+ * Called by the Pi when hardware motion is detected.
+ * No auth required — Pi uses device-level trust (deviceId).
+ * Body: { deviceId, eventId? }   eventId is optional if the Pi has already
+ * uploaded a clip and has the resulting event _id.
+ */
+app.post("/api/motion", async (req, res) => {
+  const deviceId = req.body?.deviceId?.trim() || "unknown";
+  const eventId  = req.body?.eventId?.trim()  || null;
+
+  let ownerEmail = null;
+  try {
+    const device = await Device.findOne({ deviceId }).lean();
+    ownerEmail = device?.ownerEmail ?? null;
+  } catch (_) {}
+
+  const alert = await MotionAlert.create({ deviceId, ownerEmail, eventId });
+  console.log(`🚨 Motion alert created: ${alert._id} (device: ${deviceId}, owner: ${ownerEmail})`);
+  res.json({ status: "ok", alertId: alert._id });
+});
+
+/**
+ * GET /api/motion/latest
+ * App polls this every ~15 s to check for unacknowledged motion alerts.
+ * Returns the newest pending alert, or null if there is none or if the
+ * user is still within a "was_me" cooldown window.
+ */
+app.get("/api/motion/latest", requireAuth, async (req, res) => {
+  // If the user recently said "was me", suppress alerts until cooldown expires.
+  const activeCooldown = await MotionAlert.findOne({
+    ownerEmail: req.user.email,
+    cooldownUntil: { $gt: new Date() },
+  }).sort({ createdAt: -1 }).lean();
+
+  if (activeCooldown) {
+    return res.json({ alert: null, cooldownUntil: activeCooldown.cooldownUntil });
+  }
+
+  const alert = await MotionAlert.findOne({
+    ownerEmail: req.user.email,
+    status: "pending",
+  }).sort({ createdAt: -1 }).lean();
+
+  if (!alert) return res.json({ alert: null, cooldownUntil: null });
+
+  res.json({
+    alert: {
+      id:          alert._id,
+      deviceId:    alert.deviceId,
+      eventId:     alert.eventId,
+      createdAt:   alert.createdAt,
+      createdAtMs: alert.createdAt.getTime(),
+    },
+    cooldownUntil: null,
+  });
+});
+
+/**
+ * POST /api/motion/:alertId/acknowledge
+ * App sends the user's response.
+ * Body: { action: "was_me" | "not_me" }
+ */
+app.post("/api/motion/:alertId/acknowledge", requireAuth, async (req, res) => {
+  const { action } = req.body;
+  if (!["was_me", "not_me"].includes(action)) {
+    return res.status(400).json({ error: "action must be 'was_me' or 'not_me'" });
+  }
+
+  const alert = await MotionAlert.findById(req.params.alertId);
+  if (!alert) return res.status(404).json({ error: "Alert not found" });
+  if (alert.ownerEmail && alert.ownerEmail !== req.user.email) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  const cooldownUntil = action === "was_me"
+    ? new Date(Date.now() + 5 * 60 * 1000)
+    : null;
+
+  await MotionAlert.findByIdAndUpdate(req.params.alertId, {
+    status: "acknowledged",
+    action,
+    cooldownUntil,
+  });
+
+  console.log(`✅ Motion alert ${req.params.alertId} acknowledged: ${action}`);
+  res.json({ status: "ok", action, cooldownUntil });
 });
 
 /* =========================

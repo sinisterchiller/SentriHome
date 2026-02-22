@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -25,6 +26,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.example.esp32pairingapp.alerts.IntruderAlertOverlay
+import com.example.esp32pairingapp.alerts.MotionAlertInfo
+import com.example.esp32pairingapp.alerts.createMotionNotificationChannel
+import com.example.esp32pairingapp.alerts.showMotionNotification
 import com.example.esp32pairingapp.auth.LoginScreen
 import com.example.esp32pairingapp.network.CloudBackendPrefs
 import com.example.esp32pairingapp.network.EspHttpClient
@@ -98,6 +103,8 @@ class MainActivity : ComponentActivity() {
 
         hasLocationPermission = isLocationPermissionGranted()
         isLoggedIn = CloudBackendPrefs.isLoggedIn(this)
+
+        createMotionNotificationChannel(this)
 
         setContent {
             ESP32PairingAppTheme {
@@ -200,6 +207,23 @@ fun StreamPage(
     var permanentPass by remember { mutableStateOf("") }
     var permanentPassError by remember { mutableStateOf<String?>(null) }
 
+    // Motion alert state
+    var activeMotionAlert  by remember { mutableStateOf<MotionAlertInfo?>(null) }
+    var lastShownAlertId   by remember { mutableStateOf<String?>(null) }
+
+    // Request POST_NOTIFICATIONS permission on Android 13+
+    val notifPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* granted or denied — notification will show if granted */ }
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val scrollState = rememberScrollState()
@@ -286,6 +310,40 @@ fun StreamPage(
         }
     }
 
+    // Motion alert polling — every 15 s
+    LaunchedEffect(Unit) {
+        while (true) {
+            try {
+                val token = CloudBackendPrefs.getAuthToken(context)
+                if (!token.isNullOrBlank()) {
+                    val resp = withContext(Dispatchers.IO) {
+                        httpClient.get(
+                            com.example.esp32pairingapp.network.ApiConfig.getLatestMotionAlertUrl(),
+                            null,
+                            token
+                        )
+                    }
+                    val json = org.json.JSONObject(resp)
+                    val alertObj = json.optJSONObject("alert")
+                    if (alertObj != null) {
+                        val alertId = alertObj.getString("id")
+                        if (alertId != lastShownAlertId) {
+                            val newAlert = MotionAlertInfo(
+                                id          = alertId,
+                                deviceId    = alertObj.optString("deviceId", "unknown"),
+                                createdAtMs = alertObj.optLong("createdAtMs", System.currentTimeMillis()),
+                            )
+                            activeMotionAlert = newAlert
+                            lastShownAlertId  = alertId
+                            showMotionNotification(context, newAlert.deviceId)
+                        }
+                    }
+                }
+            } catch (_: Exception) { /* silent — network may be offline */ }
+            delay(15_000)
+        }
+    }
+
     // Full-screen ESP setup wizard overlay
     if (showEspSetupWizard) {
         com.example.esp32pairingapp.setup.EspMainSetupScreen(
@@ -295,6 +353,7 @@ fun StreamPage(
         return
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -1101,6 +1160,17 @@ fun StreamPage(
             }
         )
     }
+
+    // Intruder alert overlay — floats above everything when motion is detected
+    activeMotionAlert?.let { alert ->
+        IntruderAlertOverlay(
+            alert      = alert,
+            httpClient = httpClient,
+            onDismiss  = { activeMotionAlert = null }
+        )
+    }
+
+    } // end Box
 }
 
 
