@@ -27,20 +27,24 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Model for events/clips from cloud backend (e.g. Google Drive).
+ * Model for events/clips from cloud backend.
  */
 data class VideoClip(
     val id: String,
     val filename: String,
     val timestamp: String,
     val deviceId: String,
+    val hasThumbnail: Boolean,
     val thumbnailUrl: String?,
     val videoUrl: String?
 )
 
 /**
  * Load clips from cloud backend GET /api/events. Requires auth token (user must be logged in).
- * Returns list of VideoClip; URLs include ?token= so thumbnails and Play work.
+ *
+ * The backend now embeds presigned S3 URLs (thumbnailUrl / videoUrl) directly in the response,
+ * so the app loads media straight from S3 — no extra hop through ngrok per thumbnail.
+ * Falls back to the /api/clips/:id endpoint (with ?token=) if the backend omits those fields.
  */
 suspend fun loadClipsFromCloud(httpClient: EspHttpClient, authToken: String?): List<VideoClip> {
     if (authToken.isNullOrBlank()) return emptyList()
@@ -69,13 +73,25 @@ suspend fun loadClipsFromCloud(httpClient: EspHttpClient, authToken: String?): L
             val filename = eventObj.optString("filename", "event_$i.mp4")
             val timestamp = eventObj.optString("createdAt", eventObj.optString("timestamp", ""))
             val deviceId = eventObj.optString("deviceId", "unknown")
+            val hasThumbnail = eventObj.optBoolean("hasThumbnail", false)
+
+            // Prefer presigned S3 URLs embedded by the backend; fall back to backend endpoint.
+            val thumbnailUrl = eventObj.optString("thumbnailUrl", "").takeIf { it.isNotBlank() }
+                ?: if (hasThumbnail && id.isNotBlank())
+                    ApiConfig.getClipThumbnailUrl(id) + tokenSuffix
+                else null
+
+            val videoUrl = eventObj.optString("videoUrl", "").takeIf { it.isNotBlank() }
+                ?: if (id.isNotBlank()) ApiConfig.getClipStreamUrl(id) + tokenSuffix else null
+
             VideoClip(
                 id = id,
                 filename = filename,
                 timestamp = timestamp,
                 deviceId = deviceId,
-                thumbnailUrl = if (id.isNotBlank()) ApiConfig.getClipThumbnailUrl(id) + tokenSuffix else null,
-                videoUrl = if (id.isNotBlank()) ApiConfig.getClipStreamUrl(id) + tokenSuffix else null
+                hasThumbnail = hasThumbnail,
+                thumbnailUrl = thumbnailUrl,
+                videoUrl = videoUrl,
             )
         }
     }
@@ -84,13 +100,20 @@ suspend fun loadClipsFromCloud(httpClient: EspHttpClient, authToken: String?): L
 private fun fetchBitmap(url: String): Bitmap? {
     val connection = (URL(url).openConnection() as HttpURLConnection).apply {
         connectTimeout = 10_000
-        readTimeout = 10_000
+        readTimeout = 15_000
         instanceFollowRedirects = true
+        // Required for ngrok free tunnels — without this header ngrok returns
+        // an HTML warning page instead of the actual response for non-browser clients.
+        setRequestProperty("ngrok-skip-browser-warning", "true")
+        setRequestProperty("User-Agent", "HomeSecurityApp/1.0")
     }
     return try {
         if (connection.responseCode in 200..299) {
             connection.inputStream.use { BitmapFactory.decodeStream(it) }
-        } else null
+        } else {
+            Log.w("SavedClips", "Thumbnail fetch got HTTP ${connection.responseCode} for $url")
+            null
+        }
     } finally {
         connection.disconnect()
     }
@@ -214,7 +237,8 @@ fun SavedClipsContent(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val thumb = clip.thumbnailUrl
+                        // Only show thumbnail widget if the event actually has one.
+                        val thumb = clip.thumbnailUrl?.takeIf { clip.hasThumbnail }
                         if (thumb != null) {
                             Surface(
                                 shape = MaterialTheme.shapes.medium,
@@ -232,7 +256,11 @@ fun SavedClipsContent(
                                 shape = MaterialTheme.shapes.medium,
                                 color = MaterialTheme.colorScheme.surfaceVariant,
                                 modifier = Modifier.size(width = 120.dp, height = 80.dp)
-                            ) {}
+                            ) {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text("🎥", style = MaterialTheme.typography.titleLarge)
+                                }
+                            }
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(clip.filename, style = MaterialTheme.typography.bodyMedium)

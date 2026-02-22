@@ -20,6 +20,22 @@ import { Device } from "./models/Device.js";
 import { uploadToS3, getPresignedUrl, pruneOldSegments } from "./s3Client.js";
 import { getHlsCache } from "./hlsCache.js";
 
+/* =========================
+   Presigned URL cache
+   Avoids re-signing the same S3 key on every request.
+   TTL is 45 min; presigned URLs are valid for 1 hour.
+========================= */
+const presignedCache = new Map(); // s3Key -> { url, expiresAt }
+const PRESIGNED_TTL_MS = 45 * 60 * 1000;
+
+async function getCachedPresignedUrl(s3Key) {
+  const cached = presignedCache.get(s3Key);
+  if (cached && Date.now() < cached.expiresAt) return cached.url;
+  const url = await getPresignedUrl(s3Key, 3600);
+  presignedCache.set(s3Key, { url, expiresAt: Date.now() + PRESIGNED_TTL_MS });
+  return url;
+}
+
 const app = express();
 app.use(cors({
   origin: ["http://localhost:5173", "http://localhost:3000", "http://localhost:5174"],
@@ -294,20 +310,42 @@ app.post("/api/events/upload", upload.single("file"), async (req, res) => {
 ========================= */
 
 app.get("/api/events", requireAuth, async (req, res) => {
-  const events = await Event.find({ ownerEmail: req.user.email })
+  // Only return fully-uploaded events that belong to this user.
+  // Excludes: events without ownerEmail (unlinked devices), partial uploads,
+  // and anything that isn't status "ready".
+  const events = await Event.find({
+    ownerEmail: req.user.email,
+    s3Key: { $exists: true, $ne: null },
+    status: "ready",
+  })
     .sort({ createdAt: -1 })
-    .limit(100);
-  res.json(events.map(e => ({
-    _id: e._id,
-    id: e._id,
-    deviceId: e.deviceId,
-    filename: e.filename,
-    createdAt: e.createdAt,
-    timestamp: e.createdAt,
-    status: e.status,
-    hasVideo: !!e.s3Key,
-    hasThumbnail: !!e.thumbnailS3Key,
-  })));
+    .limit(50);
+
+  // Embed presigned S3 URLs directly so the app loads media straight from S3
+  // (no extra hop through the backend / ngrok for each thumbnail or clip).
+  const result = await Promise.all(events.map(async (e) => {
+    let thumbnailUrl = null;
+    let videoUrl = null;
+    try { videoUrl = await getCachedPresignedUrl(e.s3Key); } catch (_) {}
+    if (e.thumbnailS3Key) {
+      try { thumbnailUrl = await getCachedPresignedUrl(e.thumbnailS3Key); } catch (_) {}
+    }
+    return {
+      _id: e._id,
+      id: e._id,
+      deviceId: e.deviceId,
+      filename: e.filename,
+      createdAt: e.createdAt,
+      timestamp: e.createdAt,
+      status: e.status,
+      hasVideo: !!e.s3Key,
+      hasThumbnail: !!e.thumbnailS3Key,
+      thumbnailUrl,
+      videoUrl,
+    };
+  }));
+
+  res.json(result);
 });
 
 /* =========================
@@ -322,7 +360,7 @@ app.get("/api/clips/:eventId", requireAuthOrQueryToken, async (req, res) => {
   if (event.ownerEmail && event.ownerEmail !== req.user.email) {
     return res.status(403).json({ error: "Forbidden: not your clip" });
   }
-  const url = await getPresignedUrl(event.s3Key, 3600);
+  const url = await getCachedPresignedUrl(event.s3Key);
   res.redirect(302, url);
 });
 
@@ -334,7 +372,7 @@ app.get("/api/clips/:eventId/thumbnail", requireAuthOrQueryToken, async (req, re
   if (event.ownerEmail && event.ownerEmail !== req.user.email) {
     return res.status(403).json({ error: "Forbidden: not your clip" });
   }
-  const url = await getPresignedUrl(event.thumbnailS3Key, 3600);
+  const url = await getCachedPresignedUrl(event.thumbnailS3Key);
   res.redirect(302, url);
 });
 

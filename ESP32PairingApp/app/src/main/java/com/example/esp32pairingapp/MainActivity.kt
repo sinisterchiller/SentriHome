@@ -10,7 +10,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -31,9 +30,6 @@ import com.example.esp32pairingapp.network.CloudBackendPrefs
 import com.example.esp32pairingapp.network.EspHttpClient
 import com.example.esp32pairingapp.clips.HlsPlayerView
 import com.example.esp32pairingapp.clips.SavedClipsContent
-import com.example.esp32pairingapp.clips.SavedClipsScreen
-import com.example.esp32pairingapp.clips.VideoClip
-import com.example.esp32pairingapp.pairing.PasswordGenerator
 import com.example.esp32pairingapp.pairing.OtpGenerator
 import com.example.esp32pairingapp.network.PiBackendPrefs
 import com.example.esp32pairingapp.ui.theme.ESP32PairingAppTheme
@@ -50,11 +46,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.annotation.RequiresApi
 import android.widget.Toast
-import kotlin.collections.isNotEmpty
-import kotlin.collections.take
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -115,7 +107,8 @@ class MainActivity : ComponentActivity() {
                         onRequestPermission = { requestRequiredPermissions() }
                     )
                     !isLoggedIn -> LoginScreen()
-                    else -> WifiManualScreen(
+                    else -> StreamPage(
+                        network = null,
                         httpClient = httpClient,
                         onLogout = { isLoggedIn = false }
                     )
@@ -178,369 +171,10 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun WifiManualScreen(httpClient: EspHttpClient, onLogout: () -> Unit = {}) {
-    var status by remember { mutableStateOf("Manual connection mode:\n" +
-            "1) Connect your phone to the ESP32 Wi-Fi in Android Settings\n" +
-            "2) Return here and tap \"Test Connection\"") }
-    var showWifiDialog by remember { mutableStateOf(false) }
-    var showStreamPage by remember { mutableStateOf(false) }
-    var showSavedClipsScreen by remember { mutableStateOf(false) }
-    var pendingOtp by remember { mutableStateOf("") }
-    var showOtpDialog by remember { mutableStateOf(false) }
-    var showScheduleSection by remember { mutableStateOf(false) }
-    var showPermanentPassDialog by remember { mutableStateOf(false) }
-    var permanentPass by remember { mutableStateOf("") }
-    var permanentPassError by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-
-
-    if (showStreamPage) {
-        StreamPage(
-            network = null,
-            httpClient = httpClient,
-            onBack = { showStreamPage = false },
-            onLogout = onLogout
-        )
-        return
-    }
-    if (showSavedClipsScreen) {
-        SavedClipsScreen(
-            httpClient = httpClient,
-            onBack = { showSavedClipsScreen = false }
-        )
-        return
-    }
-
-    Column(
-        modifier = Modifier
-            .padding(16.dp)
-            .fillMaxSize()
-    ) {
-        Text(
-            text = "Status",
-            style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
-
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .animateContentSize(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-        ) {
-            Text(
-                text = status,
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.padding(16.dp)
-            )
-        }
-
-        Spacer(Modifier.height(16.dp))
-
-
-        // ✅ Always enabled
-        Button(
-            onClick = {
-                scope.launch {
-                    status = "Testing HTTP connection..."
-                    try {
-                        val response =
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                                withContext(Dispatchers.IO) {
-                                    httpClient.get(HEALTH_URL, network = null)
-                                }
-                            } else {
-                                "HTTP requires Android 5.0+"
-                            }
-
-                        status = "HTTP test succeeded ✅\n${response.take(400)}"
-                    } catch (e: Exception) {
-                        status =
-                            "HTTP test failed ❌: ${e.message}\n\n" +
-                                    "Make sure you are connected to the ESP32 Wi-Fi in Settings."
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Test Connection")
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        Button(
-            onClick = { showWifiDialog = true },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Send WiFi Credentials")
-        }
-        Spacer(Modifier.height(8.dp))
-
-        Button(
-            onClick = {
-                pendingOtp = OtpGenerator.generate()
-                showOtpDialog = true
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Generate OTP")
-        }
-        Spacer(Modifier.height(8.dp))
-
-        Button(
-            onClick = {
-                permanentPass = ""
-                permanentPassError = null
-                showPermanentPassDialog = true
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Set Permanent Password")
-        }
-        Spacer(Modifier.height(8.dp))
-
-// Toggle schedule section visibility
-        Button(
-            onClick = { showScheduleSection = !showScheduleSection },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(if (showScheduleSection) "Hide Schedule" else "Set Schedule")
-        }
-
-        if (showScheduleSection) {
-            ScheduleSection(httpClient = httpClient, onStatus = { status = it })
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        Button(
-            onClick = { showStreamPage = true },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("View Stream & Clips")
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        Button(
-            onClick = { showSavedClipsScreen = true },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Watch saved clips")
-        }
-
-        Spacer(Modifier.height(24.dp))
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("Manual mode:", style = MaterialTheme.typography.titleSmall)
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text =
-                        "• Step 1: Open Android Wi-Fi settings and connect to the ESP32 network\n" +
-                                "• Step 2: Return to this app\n" +
-                                "• Step 3: Tap \"Test Connection\"\n" +
-                                "• Step 4: Tap \"Send Wi-Fi Credentials\" to send your home Wi-Fi info\n\n" +
-                                "If \"Test Connection\" fails, you're probably not connected to ESP32 Wi-Fi.",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        }
-    }
-
-    if (showWifiDialog) {
-        WifiCredentialsDialog(
-            onDismiss = { showWifiDialog = false },
-            onSubmit = { ssid, password ->
-                scope.launch {
-                    status = "Sending WiFi credentials..."
-
-                    try {
-                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
-                            status = "WiFi setup requires Android 5.0+"
-                            showWifiDialog = false
-                            return@launch
-                        }
-
-                        val cleanedSsid = ssid.trim().replace(Regex("\\p{C}"), "")
-                        val cleanedPass = password.trim().replace(Regex("\\p{C}"), "")
-                        val encodedSsid = URLEncoder.encode(cleanedSsid, "UTF-8")
-                        val encodedPass = URLEncoder.encode(cleanedPass, "UTF-8")
-
-                        withContext(Dispatchers.IO) {
-                            httpClient.post(
-                                url = NEWSSID_URL,
-                                body = "SSID=$encodedSsid",
-                                contentType = "application/x-www-form-urlencoded",
-                                network = null
-                            )
-                            httpClient.post(
-                                url = NEWPASS_URL,
-                                body = "pass=$encodedPass",
-                                contentType = "application/x-www-form-urlencoded",
-                                network = null
-                            )
-                            // Send encrypted password
-                            val generatedPass = PasswordGenerator.generate()
-                            httpClient.post(
-                                url = ENCRYPTEDPASS_URL,
-                                body = "pass=${URLEncoder.encode(generatedPass, "UTF-8")}",
-                                contentType = "application/x-www-form-urlencoded",
-                                network = null
-                            )
-                        }
-
-
-                    } catch (e: Exception) {
-                        showWifiDialog = false
-                        status =
-                            "Failed to send credentials ❌: ${e.message}\n\n" +
-                                    "Make sure you are connected to ESP32 Wi-Fi in Settings."
-                    }
-                }
-            }
-        )
-    }
-    // OTP confirmation dialog
-    if (showOtpDialog && pendingOtp.isNotEmpty()) {
-        AlertDialog(
-            onDismissRequest = { /* prevent accidental dismiss */ },
-            title = { Text("SET OTP") },
-            text = {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "Your One-Time Password:",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        text = pendingOtp,
-                        style = MaterialTheme.typography.displaySmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        text = "Send this OTP to the ESP32?",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    val otpToSend = pendingOtp  // capture before clearing
-                    showOtpDialog = false
-                    pendingOtp = ""
-                    scope.launch {
-                        try {
-                            withContext(Dispatchers.IO) {
-                                httpClient.post(
-                                    url = ONETIMEPASS_URL,
-                                    body = "otp=${URLEncoder.encode(otpToSend, "UTF-8")}",
-                                    contentType = "application/x-www-form-urlencoded",
-                                    network = null
-                                )
-                            }
-                            status = "OTP sent successfully ✅"
-                        } catch (e: Exception) {
-                            status = "Failed to send OTP ❌: ${e.message}"
-                        }
-                    }
-                }) { Text("Yes") }
-            },
-            dismissButton = {
-                Button(onClick = {
-                    showOtpDialog = false
-                    pendingOtp = ""
-                    status = "OTP cancelled. Resend credentials to generate a new OTP."
-                }) { Text("No") }
-            }
-        )
-    }
-
-    if (showPermanentPassDialog) {
-        val allowedChars = ('0'..'9').toSet() + ('A'..'D').toSet() + setOf('#', '*')
-
-        AlertDialog(
-            onDismissRequest = { showPermanentPassDialog = false },
-            title = { Text("Set Permanent Password") },
-            text = {
-                Column {
-                    Text(
-                        text = "Allowed characters: 0-9, A, B, C, D, #, *",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = permanentPass,
-                        onValueChange = { newValue ->
-                            val upper = newValue.uppercase()
-                            if (upper.length > 8) {
-                                permanentPassError = "Password must be exactly 8 characters"
-                            } else if (upper.all { ch -> ch in allowedChars }) {
-                                permanentPass = upper
-                                permanentPassError = null
-                            } else {
-                                permanentPassError = "Only 0-9, A-D, # and * are allowed"
-                            }
-                        },
-                        label = { Text("Password") },
-                        isError = permanentPassError != null,
-                        supportingText = permanentPassError?.let { err -> { Text(err) } },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (permanentPass.length != 8) {
-                            permanentPassError = "Password must be exactly 8 characters"
-                            return@Button
-                        }
-                        val passToSend = permanentPass
-                        showPermanentPassDialog = false
-                        scope.launch {
-                            try {
-                                withContext(Dispatchers.IO) {
-                                    httpClient.post(
-                                        url = PERMANENTPASS_URL,
-                                        body = "pass=${URLEncoder.encode(passToSend, "UTF-8")}",
-                                        contentType = "application/x-www-form-urlencoded",
-                                        network = null
-                                    )
-                                }
-                                status = "Permanent password set successfully ✅"
-                            } catch (e: Exception) {
-                                status = "Failed to set permanent password ❌: ${e.message}"
-                            }
-                        }
-                    }
-                ) { Text("Save") }
-            },
-            dismissButton = {
-                Button(onClick = {
-                    showPermanentPassDialog = false
-                    permanentPass = ""
-                    permanentPassError = null
-                }) { Text("Cancel") }
-            }
-        )
-    }
-}
-
-@RequiresApi(Build.VERSION_CODES.LOLLIPOP)
-@Composable
 fun StreamPage(
     network: Network?,
     httpClient: com.example.esp32pairingapp.network.EspHttpClient,
-    onBack: () -> Unit,
+    onBack: () -> Unit = {},
     onLogout: () -> Unit = {}
 ) {
     val deviceId = com.example.esp32pairingapp.network.ApiConfig.DEFAULT_DEVICE_ID
@@ -553,12 +187,17 @@ fun StreamPage(
     var driveAccountEmail by remember { mutableStateOf<String?>(null) }
     val errorLogs = remember { mutableStateListOf<String>() }
 
-    // Drawer + OTP + Schedule + Error Logs state
+    // Drawer + dialogs state
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var showOtpDialog by remember { mutableStateOf(false) }
     var pendingOtp by remember { mutableStateOf("") }
     var showScheduleDialog by remember { mutableStateOf(false) }
     var showErrorLogsDialog by remember { mutableStateOf(false) }
+    // ESP32 setup dialogs
+    var showWifiDialog by remember { mutableStateOf(false) }
+    var showPermanentPassDialog by remember { mutableStateOf(false) }
+    var permanentPass by remember { mutableStateOf("") }
+    var permanentPassError by remember { mutableStateOf<String?>(null) }
 
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -589,7 +228,10 @@ fun StreamPage(
     var showCloudDialog by remember { mutableStateOf(false) }
     var showPiDialog by remember { mutableStateOf(false) }
     var cloudHostInput by remember {
-        mutableStateOf(CloudBackendPrefs.getRawHostInput(context) ?: "")
+        mutableStateOf(
+            CloudBackendPrefs.getRawHostInput(context)
+                ?: com.example.esp32pairingapp.network.ApiConfig.getCloudBaseUrl()
+        )
     }
     var piHostInput by remember {
         mutableStateOf(PiBackendPrefs.getRawHostInput(context) ?: "")
@@ -668,9 +310,9 @@ fun StreamPage(
                     }
                 )
 
-                // Edit Cloud IP
+                // Change cloud backend URL
                 NavigationDrawerItem(
-                    label = { Text("Edit Cloud IP") },
+                    label = { Text("Change cloud backend URL") },
                     selected = false,
                     onClick = {
                         showCloudDialog = true
@@ -760,6 +402,57 @@ fun StreamPage(
                     selected = false,
                     onClick = {
                         showErrorLogsDialog = true
+                        scope.launch { drawerState.close() }
+                    }
+                )
+
+                HorizontalDivider()
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "ESP32 Setup",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = androidx.compose.ui.Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+
+                // Test ESP32 Connection
+                NavigationDrawerItem(
+                    label = { Text("Test ESP32 Connection") },
+                    selected = false,
+                    onClick = {
+                        scope.launch {
+                            drawerState.close()
+                            errorMessage = "Testing ESP32 connection…"
+                            try {
+                                val resp = withContext(Dispatchers.IO) {
+                                    httpClient.get(HEALTH_URL, network = null)
+                                }
+                                errorMessage = "✅ ESP32 reachable: ${resp.take(80)}"
+                            } catch (e: Exception) {
+                                errorMessage = "❌ ESP32 unreachable: ${e.message}"
+                            }
+                        }
+                    }
+                )
+
+                // Send WiFi Credentials
+                NavigationDrawerItem(
+                    label = { Text("Send WiFi Credentials") },
+                    selected = false,
+                    onClick = {
+                        showWifiDialog = true
+                        scope.launch { drawerState.close() }
+                    }
+                )
+
+                // Set Permanent Password
+                NavigationDrawerItem(
+                    label = { Text("Set Permanent Password") },
+                    selected = false,
+                    onClick = {
+                        permanentPass = ""
+                        permanentPassError = null
+                        showPermanentPassDialog = true
                         scope.launch { drawerState.close() }
                     }
                 )
@@ -1193,22 +886,22 @@ fun StreamPage(
         )
     }
 
-    // Edit Cloud dialog
+    // Change cloud backend URL dialog (from hamburger menu)
     if (showCloudDialog) {
         AlertDialog(
             onDismissRequest = { showCloudDialog = false },
-            title = { Text("Cloud backend IP / Host") },
+            title = { Text("Cloud backend URL") },
             text = {
                 Column {
                     Text(
-                        "Enter the computer running the Cloud backend. Port 3001 is used automatically.\n\nExamples: 192.168.1.50 or cloudbox.local",
+                        "Enter the Cloud backend URL. For https (e.g. ngrok) no port is added; for http or a bare IP, port 3001 is used.\n\nExamples: https://xxx.ngrok-free.dev or 192.168.1.50",
                         style = MaterialTheme.typography.bodySmall
                     )
                     Spacer(Modifier.height(12.dp))
                     TextField(
                         value = cloudHostInput,
                         onValueChange = { cloudHostInput = it },
-                        label = { Text("Cloud host or IP") },
+                        label = { Text("Cloud URL or IP") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                         modifier = androidx.compose.ui.Modifier.fillMaxWidth()
@@ -1292,6 +985,121 @@ fun StreamPage(
             },
             dismissButton = {
                 Button(onClick = { showPiDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Send WiFi Credentials dialog (ESP32 setup)
+    if (showWifiDialog) {
+        WifiCredentialsDialog(
+            onDismiss = { showWifiDialog = false },
+            onSubmit = { ssid, password ->
+                scope.launch {
+                    showWifiDialog = false
+                    errorMessage = "Sending WiFi credentials…"
+                    try {
+                        val cleanedSsid = ssid.trim().replace(Regex("\\p{C}"), "")
+                        val cleanedPass = password.trim().replace(Regex("\\p{C}"), "")
+                        val encodedSsid = URLEncoder.encode(cleanedSsid, "UTF-8")
+                        val encodedPass = URLEncoder.encode(cleanedPass, "UTF-8")
+                        withContext(Dispatchers.IO) {
+                            httpClient.post(
+                                url = NEWSSID_URL,
+                                body = "SSID=$encodedSsid",
+                                contentType = "application/x-www-form-urlencoded",
+                                network = null
+                            )
+                            httpClient.post(
+                                url = NEWPASS_URL,
+                                body = "pass=$encodedPass",
+                                contentType = "application/x-www-form-urlencoded",
+                                network = null
+                            )
+                            val generatedPass = com.example.esp32pairingapp.pairing.PasswordGenerator.generate()
+                            httpClient.post(
+                                url = ENCRYPTEDPASS_URL,
+                                body = "pass=${URLEncoder.encode(generatedPass, "UTF-8")}",
+                                contentType = "application/x-www-form-urlencoded",
+                                network = null
+                            )
+                        }
+                        errorMessage = "✅ WiFi credentials sent"
+                    } catch (e: Exception) {
+                        errorMessage = "❌ Failed to send credentials: ${e.message}"
+                    }
+                }
+            }
+        )
+    }
+
+    // Set Permanent Password dialog (ESP32 setup)
+    if (showPermanentPassDialog) {
+        val allowedChars = ('0'..'9').toSet() + ('A'..'D').toSet() + setOf('#', '*')
+        AlertDialog(
+            onDismissRequest = { showPermanentPassDialog = false },
+            title = { Text("Set Permanent Password") },
+            text = {
+                Column {
+                    Text(
+                        text = "Allowed characters: 0-9, A, B, C, D, #, *",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = permanentPass,
+                        onValueChange = { newValue ->
+                            val upper = newValue.uppercase()
+                            if (upper.length > 8) {
+                                permanentPassError = "Password must be exactly 8 characters"
+                            } else if (upper.all { ch -> ch in allowedChars }) {
+                                permanentPass = upper
+                                permanentPassError = null
+                            } else {
+                                permanentPassError = "Only 0-9, A-D, # and * are allowed"
+                            }
+                        },
+                        label = { Text("Password") },
+                        isError = permanentPassError != null,
+                        supportingText = permanentPassError?.let { err -> { Text(err) } },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (permanentPass.length != 8) {
+                            permanentPassError = "Password must be exactly 8 characters"
+                            return@Button
+                        }
+                        val passToSend = permanentPass
+                        showPermanentPassDialog = false
+                        scope.launch {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    httpClient.post(
+                                        url = PERMANENTPASS_URL,
+                                        body = "pass=${URLEncoder.encode(passToSend, "UTF-8")}",
+                                        contentType = "application/x-www-form-urlencoded",
+                                        network = null
+                                    )
+                                }
+                                errorMessage = "✅ Permanent password set"
+                            } catch (e: Exception) {
+                                errorMessage = "❌ Failed to set permanent password: ${e.message}"
+                            }
+                        }
+                    }
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                Button(onClick = {
+                    showPermanentPassDialog = false
+                    permanentPass = ""
+                    permanentPassError = null
+                }) { Text("Cancel") }
             }
         )
     }

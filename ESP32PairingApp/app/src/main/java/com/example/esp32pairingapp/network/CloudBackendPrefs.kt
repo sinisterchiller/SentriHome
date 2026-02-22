@@ -6,11 +6,11 @@ import android.content.Context
  * Minimal SharedPreferences-backed config for the Cloud backend address.
  *
  * User can enter either:
- *  - 192.168.1.50
- *  - http://192.168.1.50
- *  - https://example.com
+ *  - 192.168.1.50  -> http://192.168.1.50:3001
+ *  - http://192.168.1.50  -> http://192.168.1.50:3001
+ *  - https://something.ngrok-free.dev  -> used as-is (no port added)
  *
- * We normalize to: http(s)://host:3001
+ * We do not add :3001 for https URLs (e.g. ngrok); only for http or bare host.
  */
 object CloudBackendPrefs {
     private const val PREFS_NAME = "cloud_backend_prefs"
@@ -51,7 +51,7 @@ object CloudBackendPrefs {
     /** True if we have a token (user is logged in for cloud/Drive). */
     fun isLoggedIn(context: Context): Boolean = !getAuthToken(context).isNullOrBlank()
 
-    /** Returns a normalized base URL like http://192.168.1.50:3001 */
+    /** Returns a normalized base URL. Does not add :3001 for https (e.g. ngrok). */
     fun computeCloudBaseUrl(rawInput: String): String {
         val trimmed = rawInput.trim()
         require(trimmed.isNotEmpty()) { "Cloud backend host/IP is empty" }
@@ -66,19 +66,21 @@ object CloudBackendPrefs {
         // Remove any trailing slash
         val noTrailingSlash = withScheme.removeSuffix("/")
 
-        // If they already included a port, strip it, then force 3001.
-        // This keeps input forgiving and matches your API doc.
         val schemeSplit = noTrailingSlash.split("://", limit = 2)
         val scheme = schemeSplit[0]
         val hostAndMaybePort = schemeSplit.getOrNull(1) ?: ""
 
-        // hostAndMaybePort might include path. We only want the host portion.
         val hostPortAndPathSplit = hostAndMaybePort.split("/", limit = 2)
         val hostPort = hostPortAndPathSplit[0]
 
         val hostOnly = hostPort.substringBefore(":")
         require(hostOnly.isNotBlank()) { "Invalid host/IP" }
 
-        return "$scheme://$hostOnly:3001"
+        // Do not add :3001 for https (e.g. ngrok URLs) or when URL already has a port.
+        val hasExplicitPort = hostPort.contains(":")
+        return when {
+            scheme == "https" || hasExplicitPort -> noTrailingSlash
+            else -> "$scheme://$hostOnly:3001"
+        }
     }
 }
