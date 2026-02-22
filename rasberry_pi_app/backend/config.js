@@ -19,23 +19,22 @@ const DEFAULTS = {
  * Re-reads config.json on each call so POST /setup takes effect without restart.
  */
 export function getConfig() {
-  const fromEnv = {
-    CLOUD_BASE_URL: process.env.CLOUD_BASE_URL,
-    CLOUD_UPLOAD_ENDPOINT: process.env.CLOUD_UPLOAD_ENDPOINT,
-    DEVICE_ID: process.env.DEVICE_ID,
-    UPLOAD_POLL_MS: process.env.UPLOAD_POLL_MS != null ? Number(process.env.UPLOAD_POLL_MS) : undefined,
-    UPLOAD_INTERVAL_MS: process.env.UPLOAD_INTERVAL_MS != null ? Number(process.env.UPLOAD_INTERVAL_MS) : undefined,
-    MAX_ATTEMPTS: process.env.MAX_ATTEMPTS != null ? Number(process.env.MAX_ATTEMPTS) : undefined,
-    DELETE_AFTER_UPLOAD: process.env.DELETE_AFTER_UPLOAD !== "false",
-    UDP_PORT: process.env.UDP_PORT != null ? Number(process.env.UDP_PORT) : undefined,
-  };
+  const fromEnv = {};
+  if (process.env.CLOUD_BASE_URL) fromEnv.CLOUD_BASE_URL = process.env.CLOUD_BASE_URL;
+  if (process.env.CLOUD_UPLOAD_ENDPOINT) fromEnv.CLOUD_UPLOAD_ENDPOINT = process.env.CLOUD_UPLOAD_ENDPOINT;
+  if (process.env.DEVICE_ID) fromEnv.DEVICE_ID = process.env.DEVICE_ID;
+  if (process.env.UPLOAD_POLL_MS != null) fromEnv.UPLOAD_POLL_MS = Number(process.env.UPLOAD_POLL_MS);
+  if (process.env.UPLOAD_INTERVAL_MS != null) fromEnv.UPLOAD_INTERVAL_MS = Number(process.env.UPLOAD_INTERVAL_MS);
+  if (process.env.MAX_ATTEMPTS != null) fromEnv.MAX_ATTEMPTS = Number(process.env.MAX_ATTEMPTS);
+  if (process.env.DELETE_AFTER_UPLOAD != null) fromEnv.DELETE_AFTER_UPLOAD = process.env.DELETE_AFTER_UPLOAD !== "false";
+  if (process.env.UDP_PORT != null) fromEnv.UDP_PORT = Number(process.env.UDP_PORT);
 
   let fromFile = {};
   if (fs.existsSync(CONFIG_PATH)) {
     try {
       fromFile = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
     } catch (e) {
-      console.warn("⚠️ Could not parse config.json:", e.message);
+      console.warn("Could not parse config.json:", e.message);
     }
   }
 
