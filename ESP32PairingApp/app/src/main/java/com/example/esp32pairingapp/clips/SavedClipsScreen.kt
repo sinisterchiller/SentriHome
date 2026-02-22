@@ -40,14 +40,16 @@ data class VideoClip(
 )
 
 /**
- * Load clips from cloud backend GET /api/events. Requires auth token (user must be logged in).
+ * Load clips from cloud backend GET /api/events.
+ * Auth disabled — endpoint is open to all. Token is passed if available but not required.
+ * TODO: re-enable auth guard when multi-user auth is ready.
  *
- * The backend now embeds presigned S3 URLs (thumbnailUrl / videoUrl) directly in the response,
+ * The backend embeds presigned S3 URLs (thumbnailUrl / videoUrl) directly in the response,
  * so the app loads media straight from S3 — no extra hop through ngrok per thumbnail.
- * Falls back to the /api/clips/:id endpoint (with ?token=) if the backend omits those fields.
+ * Falls back to the /api/clips/:id endpoint if the backend omits those fields.
  */
 suspend fun loadClipsFromCloud(httpClient: EspHttpClient, authToken: String?): List<VideoClip> {
-    if (authToken.isNullOrBlank()) return emptyList()
+    // Auth no longer required — proceed even without a token.
     return withContext(Dispatchers.IO) {
         val response = httpClient.get(ApiConfig.getEventsUrl(), null, authToken)
         Log.d("SavedClips", "Events response: ${response.take(500)}")
@@ -66,7 +68,6 @@ suspend fun loadClipsFromCloud(httpClient: EspHttpClient, authToken: String?): L
             Log.e("SavedClips", "Failed to parse events", it)
             JSONArray()
         }
-        val tokenSuffix = "?token=${java.net.URLEncoder.encode(authToken, "UTF-8")}"
         (0 until eventsArray.length()).map { i ->
             val eventObj = eventsArray.getJSONObject(i)
             val id = eventObj.optString("_id", eventObj.optString("id", ""))
@@ -77,12 +78,10 @@ suspend fun loadClipsFromCloud(httpClient: EspHttpClient, authToken: String?): L
 
             // Prefer presigned S3 URLs embedded by the backend; fall back to backend endpoint.
             val thumbnailUrl = eventObj.optString("thumbnailUrl", "").takeIf { it.isNotBlank() }
-                ?: if (hasThumbnail && id.isNotBlank())
-                    ApiConfig.getClipThumbnailUrl(id) + tokenSuffix
-                else null
+                ?: if (hasThumbnail && id.isNotBlank()) ApiConfig.getClipThumbnailUrl(id) else null
 
             val videoUrl = eventObj.optString("videoUrl", "").takeIf { it.isNotBlank() }
-                ?: if (id.isNotBlank()) ApiConfig.getClipStreamUrl(id) + tokenSuffix else null
+                ?: if (id.isNotBlank()) ApiConfig.getClipStreamUrl(id) else null
 
             VideoClip(
                 id = id,
@@ -180,7 +179,8 @@ fun SavedClipsContent(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val authToken = CloudBackendPrefs.getAuthToken(context)
-    val isLoggedIn = !authToken.isNullOrBlank()
+    // Auth disabled — clips are visible to all users.
+    // val isLoggedIn = !authToken.isNullOrBlank()
 
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -191,17 +191,8 @@ fun SavedClipsContent(
         Column(modifier = Modifier.padding(16.dp)) {
             if (showTitle) {
                 Text(
-                    "Recorded Clips (Google Drive)",
+                    "Recorded Clips",
                     style = MaterialTheme.typography.titleMedium
-                )
-                Spacer(Modifier.height(8.dp))
-            }
-
-            if (!isLoggedIn) {
-                Text(
-                    "Sign in with Google Drive to view your clips.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
                 )
                 Spacer(Modifier.height(8.dp))
             }
@@ -212,7 +203,7 @@ fun SavedClipsContent(
                         isLoading = true
                         onError("")
                         try {
-                            clips = loadClipsFromCloud(httpClient, CloudBackendPrefs.getAuthToken(context))
+                            clips = loadClipsFromCloud(httpClient, authToken)
                             onError("✅ Loaded ${clips.size} events")
                         } catch (e: Exception) {
                             onError("❌ Failed to load clips: ${e.message}")
@@ -222,10 +213,10 @@ fun SavedClipsContent(
                         }
                     }
                 },
-                enabled = !isLoading && isLoggedIn,
+                enabled = !isLoading,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(if (isLoading) "Loading..." else "🔄 Load Clips from Drive")
+                Text(if (isLoading) "Loading..." else "🔄 Load Clips")
             }
 
             if (clips.isNotEmpty()) {

@@ -310,33 +310,29 @@ fun StreamPage(
         }
     }
 
-    // Motion alert polling — every 15 s
+    // Motion alert polling — every 15 s (no auth token needed)
     LaunchedEffect(Unit) {
         while (true) {
             try {
-                val token = CloudBackendPrefs.getAuthToken(context)
-                if (!token.isNullOrBlank()) {
-                    val resp = withContext(Dispatchers.IO) {
-                        httpClient.get(
-                            com.example.esp32pairingapp.network.ApiConfig.getLatestMotionAlertUrl(),
-                            null,
-                            token
+                val resp = withContext(Dispatchers.IO) {
+                    httpClient.get(
+                        com.example.esp32pairingapp.network.ApiConfig.getLatestMotionAlertUrl(),
+                        null
+                    )
+                }
+                val json = org.json.JSONObject(resp)
+                val alertObj = json.optJSONObject("alert")
+                if (alertObj != null) {
+                    val alertId = alertObj.getString("id")
+                    if (alertId != lastShownAlertId) {
+                        val newAlert = MotionAlertInfo(
+                            id          = alertId,
+                            deviceId    = alertObj.optString("deviceId", "unknown"),
+                            createdAtMs = alertObj.optLong("createdAtMs", System.currentTimeMillis()),
                         )
-                    }
-                    val json = org.json.JSONObject(resp)
-                    val alertObj = json.optJSONObject("alert")
-                    if (alertObj != null) {
-                        val alertId = alertObj.getString("id")
-                        if (alertId != lastShownAlertId) {
-                            val newAlert = MotionAlertInfo(
-                                id          = alertId,
-                                deviceId    = alertObj.optString("deviceId", "unknown"),
-                                createdAtMs = alertObj.optLong("createdAtMs", System.currentTimeMillis()),
-                            )
-                            activeMotionAlert = newAlert
-                            lastShownAlertId  = alertId
-                            showMotionNotification(context, newAlert.deviceId)
-                        }
+                        activeMotionAlert = newAlert
+                        lastShownAlertId  = alertId
+                        showMotionNotification(context, newAlert.deviceId)
                     }
                 }
             } catch (_: Exception) { /* silent — network may be offline */ }
@@ -531,18 +527,16 @@ fun StreamPage(
                         scope.launch {
                             drawerState.close()
                             try {
-                                val token = CloudBackendPrefs.getAuthToken(context) ?: ""
                                 val resp = withContext(Dispatchers.IO) {
                                     httpClient.post(
                                         url         = com.example.esp32pairingapp.network.ApiConfig.getMotionTestUrl(),
                                         body        = "{}",
                                         contentType = "application/json",
-                                        network     = null,
-                                        authToken   = token
+                                        network     = null
                                     )
                                 }
                                 val json = org.json.JSONObject(resp)
-                                errorMessage = "✅ Alert created for ${json.optString("ownerEmail")} — wait up to 15 s"
+                                errorMessage = "✅ Alert created (id: ${json.optString("alertId")}) — wait up to 15 s"
                             } catch (e: Exception) {
                                 errorMessage = "❌ Could not fire test alert: ${e.message}"
                             }

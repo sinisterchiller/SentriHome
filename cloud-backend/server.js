@@ -307,15 +307,14 @@ app.post("/api/events/upload", upload.single("file"), async (req, res) => {
 });
 
 /* =========================
-   Frontend API - List events (only this user's)
+   Frontend API - List events (all clips, no auth required)
+   TODO: re-enable requireAuth + ownerEmail filter when multi-user auth is ready
 ========================= */
 
-app.get("/api/events", requireAuth, async (req, res) => {
-  // Only return fully-uploaded events that belong to this user.
-  // Excludes: events without ownerEmail (unlinked devices), partial uploads,
-  // and anything that isn't status "ready".
+app.get("/api/events", async (_req, res) => {
+  // Auth disabled — returns all ready clips regardless of owner.
   const events = await Event.find({
-    ownerEmail: req.user.email,
+    // ownerEmail: req.user.email,   // TODO: re-enable for per-user filtering
     s3Key: { $exists: true, $ne: null },
     status: "ready",
   })
@@ -350,29 +349,30 @@ app.get("/api/events", requireAuth, async (req, res) => {
 });
 
 /* =========================
-   Serve clips from S3 (auth required, owner-only)
+   Serve clips from S3 (no auth required)
+   TODO: re-enable requireAuthOrQueryToken + owner check when multi-user auth is ready
 ========================= */
 
-app.get("/api/clips/:eventId", requireAuthOrQueryToken, async (req, res) => {
+app.get("/api/clips/:eventId", async (req, res) => {
   const eventId = req.params.eventId?.trim();
   if (!eventId) return res.status(400).json({ error: "Invalid event ID" });
   const event = await Event.findById(eventId);
   if (!event?.s3Key) return res.status(404).json({ error: "Not found" });
-  if (event.ownerEmail && event.ownerEmail !== req.user.email) {
-    return res.status(403).json({ error: "Forbidden: not your clip" });
-  }
+  // if (event.ownerEmail && event.ownerEmail !== req.user?.email) {
+  //   return res.status(403).json({ error: "Forbidden: not your clip" });
+  // }
   const url = await getCachedPresignedUrl(event.s3Key);
   res.redirect(302, url);
 });
 
-app.get("/api/clips/:eventId/thumbnail", requireAuthOrQueryToken, async (req, res) => {
+app.get("/api/clips/:eventId/thumbnail", async (req, res) => {
   const eventId = req.params.eventId?.trim();
   if (!eventId) return res.status(400).json({ error: "Invalid event ID" });
   const event = await Event.findById(eventId);
   if (!event?.thumbnailS3Key) return res.status(404).json({ error: "No thumbnail" });
-  if (event.ownerEmail && event.ownerEmail !== req.user.email) {
-    return res.status(403).json({ error: "Forbidden: not your clip" });
-  }
+  // if (event.ownerEmail && event.ownerEmail !== req.user?.email) {
+  //   return res.status(403).json({ error: "Forbidden: not your clip" });
+  // }
   const url = await getCachedPresignedUrl(event.thumbnailS3Key);
   res.redirect(302, url);
 });
@@ -405,47 +405,24 @@ app.post("/api/motion", async (req, res) => {
 
 /**
  * GET /api/motion/latest
- * App polls this every ~15 s to check for unacknowledged motion alerts.
- * Returns the newest pending alert, or null if there is none or if the
- * user is still within a "was_me" cooldown window.
- *
- * Matching strategy (most inclusive first):
- *   1. Alerts explicitly attributed to req.user.email
- *   2. Alerts from devices owned by this user (ownerEmail may be null on the
- *      alert if the Pi called /api/motion before the device was linked)
+ * Auth disabled — returns the newest pending alert for anyone.
+ * TODO: re-enable requireAuth + per-user filtering when multi-user auth is ready
  */
-app.get("/api/motion/latest", requireAuth, async (req, res) => {
-  const userEmail = req.user.email;
-
-  // Collect deviceIds owned by this user so we can match un-attributed alerts.
-  const ownedDevices = await Device.find({ ownerEmail: userEmail }, "deviceId").lean();
-  const ownedDeviceIds = ownedDevices.map((d) => d.deviceId);
-
-  const matchQuery = {
-    status: "pending",
-    $or: [
-      { ownerEmail: userEmail },
-      ...(ownedDeviceIds.length ? [{ deviceId: { $in: ownedDeviceIds }, ownerEmail: null }] : []),
-    ],
-  };
-
-  // If the user recently said "was me", suppress alerts until cooldown expires.
+app.get("/api/motion/latest", async (_req, res) => {
+  // Check global cooldown (any "was_me" ack that is still active)
   const activeCooldown = await MotionAlert.findOne({
-    $or: [
-      { ownerEmail: userEmail, cooldownUntil: { $gt: new Date() } },
-      ...(ownedDeviceIds.length
-        ? [{ deviceId: { $in: ownedDeviceIds }, cooldownUntil: { $gt: new Date() } }]
-        : []),
-    ],
+    cooldownUntil: { $gt: new Date() },
   }).sort({ createdAt: -1 }).lean();
 
   if (activeCooldown) {
     return res.json({ alert: null, cooldownUntil: activeCooldown.cooldownUntil });
   }
 
-  const alert = await MotionAlert.findOne(matchQuery).sort({ createdAt: -1 }).lean();
+  const alert = await MotionAlert.findOne({ status: "pending" })
+    .sort({ createdAt: -1 })
+    .lean();
 
-  if (!alert) return res.json({ alert: null, cooldownUntil: null, debug: { userEmail, ownedDeviceIds } });
+  if (!alert) return res.json({ alert: null, cooldownUntil: null });
 
   res.json({
     alert: {
@@ -461,26 +438,24 @@ app.get("/api/motion/latest", requireAuth, async (req, res) => {
 
 /**
  * POST /api/motion/test
- * Creates a test motion alert attributed directly to the logged-in user.
- * Use this to verify the full backend → app polling path without needing
- * device linking or real hardware.
+ * Creates a test motion alert (no auth required).
  */
-app.post("/api/motion/test", requireAuth, async (req, res) => {
+app.post("/api/motion/test", async (_req, res) => {
   const alert = await MotionAlert.create({
     deviceId:   "test-device",
-    ownerEmail: req.user.email,
+    ownerEmail: null,
     eventId:    null,
   });
-  console.log(`🧪 Test motion alert for ${req.user.email}: ${alert._id}`);
-  res.json({ status: "ok", alertId: alert._id, ownerEmail: req.user.email });
+  console.log(`🧪 Test motion alert created: ${alert._id}`);
+  res.json({ status: "ok", alertId: alert._id });
 });
 
 /**
  * POST /api/motion/:alertId/acknowledge
- * App sends the user's response.
- * Body: { action: "was_me" | "not_me" }
+ * Auth disabled — anyone can acknowledge any alert.
+ * TODO: re-enable requireAuth + ownership check when multi-user auth is ready
  */
-app.post("/api/motion/:alertId/acknowledge", requireAuth, async (req, res) => {
+app.post("/api/motion/:alertId/acknowledge", async (req, res) => {
   const { action } = req.body;
   if (!["was_me", "not_me"].includes(action)) {
     return res.status(400).json({ error: "action must be 'was_me' or 'not_me'" });
@@ -488,9 +463,9 @@ app.post("/api/motion/:alertId/acknowledge", requireAuth, async (req, res) => {
 
   const alert = await MotionAlert.findById(req.params.alertId);
   if (!alert) return res.status(404).json({ error: "Alert not found" });
-  if (alert.ownerEmail && alert.ownerEmail !== req.user.email) {
-    return res.status(403).json({ error: "Forbidden" });
-  }
+  // if (alert.ownerEmail && alert.ownerEmail !== req.user?.email) {
+  //   return res.status(403).json({ error: "Forbidden" });
+  // }
 
   const cooldownUntil = action === "was_me"
     ? new Date(Date.now() + 5 * 60 * 1000)
