@@ -1,6 +1,7 @@
 package com.example.esp32pairingapp.clips
 
 import android.net.Uri
+import android.util.Log
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
@@ -26,6 +27,11 @@ fun HlsPlayerView(playlistUrl: String, modifier: Modifier = Modifier) {
     // Keyed on playlistUrl so the player is re-created if the URL changes.
     val exoPlayer = remember(playlistUrl) {
         ExoPlayer.Builder(context).build().apply {
+            addListener(object : Player.Listener {
+                override fun onPlayerError(error: PlaybackException) {
+                    Log.e("HlsPlayerView", "Playback error: ${error.message}", error)
+                }
+            })
             val mediaItem = MediaItem.Builder()
                 .setUri(Uri.parse(playlistUrl))
                 .setMimeType(MimeTypes.APPLICATION_M3U8)

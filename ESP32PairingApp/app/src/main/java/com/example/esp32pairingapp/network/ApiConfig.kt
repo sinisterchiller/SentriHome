@@ -1,6 +1,9 @@
 package com.example.esp32pairingapp.network
 
 object ApiConfig {
+    /** Device ID for cloud HLS stream/events. Must match Pi config (config.json DEVICE_ID, default "pi-1"). */
+    const val DEFAULT_DEVICE_ID = "pi-1"
+
     // Default base URLs come from BuildConfig (set via local.properties or env vars; see app/build.gradle.kts).
     // On a real device you can still override at runtime via setCloudBaseUrlOverride() / setPiBaseUrlOverride().
     private val CLOUD_BASE_URL_DEFAULT = com.example.esp32pairingapp.BuildConfig.CLOUD_BASE_URL_DEFAULT
