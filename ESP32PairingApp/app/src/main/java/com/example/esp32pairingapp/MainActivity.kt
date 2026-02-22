@@ -423,7 +423,9 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
                         value = permanentPass,
                         onValueChange = { newValue ->
                             val upper = newValue.uppercase()
-                            if (upper.all { ch -> ch in allowedChars }) {
+                            if (upper.length > 8) {
+                                permanentPassError = "Password must be exactly 8 characters"
+                            } else if (upper.all { ch -> ch in allowedChars }) {
                                 permanentPass = upper
                                 permanentPassError = null
                             } else {
@@ -441,8 +443,8 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
             confirmButton = {
                 Button(
                     onClick = {
-                        if (permanentPass.isEmpty()) {
-                            permanentPassError = "Password cannot be empty"
+                        if (permanentPass.length != 8) {
+                            permanentPassError = "Password must be exactly 8 characters"
                             return@Button
                         }
                         val passToSend = permanentPass
