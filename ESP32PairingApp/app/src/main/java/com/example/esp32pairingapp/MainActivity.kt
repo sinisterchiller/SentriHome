@@ -514,6 +514,29 @@ fun StreamPage(
                     }
                 )
 
+                HorizontalDivider()
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Testing",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = androidx.compose.ui.Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+
+                // Simulate intruder alert — triggers the overlay immediately without backend
+                NavigationDrawerItem(
+                    label = { Text("🚨  Simulate Intruder Alert") },
+                    selected = false,
+                    onClick = {
+                        scope.launch { drawerState.close() }
+                        activeMotionAlert = com.example.esp32pairingapp.alerts.MotionAlertInfo(
+                            id          = "test-${System.currentTimeMillis()}",
+                            deviceId    = "pi-1 (simulated)",
+                            createdAtMs = System.currentTimeMillis(),
+                        )
+                    }
+                )
+
                 // Drive status info
                 if (!driveAccountEmail.isNullOrBlank()) {
                     Spacer(Modifier.height(8.dp))
