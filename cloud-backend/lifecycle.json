@@ -1,0 +1,8 @@
+{
+  "Rules": [{
+    "ID": "delete-live-segments",
+    "Filter": { "Prefix": "live/" },
+    "Status": "Enabled",
+    "Expiration": { "Days": 1 }
+  }]
+}

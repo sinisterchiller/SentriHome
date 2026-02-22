@@ -5,10 +5,10 @@ import kotlin.random.Random
 object OtpGenerator {
 
     /**
-     * Generates a random 6-digit numeric OTP.
-     * Range: 100000..999999 (always 6 digits, no leading zero)
+     * Generates a random 8-digit numeric OTP.
+     * Range: 10000000..99999999 (always 8 digits, no leading zero)
      */
     fun generate(): String {
-        return Random.nextInt(100000, 999999).toString()
+        return Random.nextInt(10000000, 99999999).toString()
     }
 }

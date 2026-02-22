@@ -13,6 +13,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -25,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.esp32pairingapp.network.CloudBackendPrefs
 import com.example.esp32pairingapp.network.EspHttpClient
+import com.example.esp32pairingapp.clips.HlsPlayerView
 import com.example.esp32pairingapp.clips.SavedClipsContent
 import com.example.esp32pairingapp.clips.SavedClipsScreen
 import com.example.esp32pairingapp.clips.VideoClip
@@ -565,7 +567,8 @@ fun StreamPage(
 
                                     if (status == "ok" || status == "success") {
                                         isStreaming = true
-                                        streamUrl = com.example.esp32pairingapp.network.ApiConfig.getStreamUrl()
+                                        streamUrl = com.example.esp32pairingapp.network.ApiConfig
+                                            .getStreamPlaylistUrl("pi-1")
                                         errorMessage = "✅ Stream started successfully"
                                     } else {
                                         errorMessage = "⚠️ Start failed: ${json.optString("message", "Unknown error")}"
@@ -667,15 +670,14 @@ fun StreamPage(
                     Text("📸 Trigger Motion & Save Clip")
                 }
 
-                if (streamUrl != null) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "Stream URL: $streamUrl",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Text(
-                        "Status: ${if (isStreaming) "🟢 LIVE" else "⚫ STOPPED"}",
-                        style = MaterialTheme.typography.bodySmall
+                if (isStreaming) {
+                    Spacer(Modifier.height(12.dp))
+                    val playlistUrl = com.example.esp32pairingapp.network.ApiConfig.getStreamPlaylistUrl("pi-1")
+                    HlsPlayerView(
+                        playlistUrl = playlistUrl,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(220.dp)
                     )
                 }
             }

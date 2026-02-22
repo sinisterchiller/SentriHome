@@ -8,6 +8,7 @@ import { extractClip } from "./clipExtractor.js";
 import { startUploader } from "./uploader.js";
 import { startUdpListener } from "./udpListener.js";
 import { getConfig, getCloudUploadUrl, hasConfigured, saveConfig } from "./config.js";
+import { startSegmentWatcher, stopSegmentWatcher } from "./segmentWatcher.js";
 
 const app = express();
 app.use(express.json());
@@ -288,4 +289,5 @@ app.listen(4000, () => {
   startBufferCleanup();
   startUploader();
   startUdpListener();
+  startSegmentWatcher();
 });
