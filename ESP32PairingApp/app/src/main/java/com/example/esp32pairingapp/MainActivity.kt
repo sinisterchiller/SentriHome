@@ -20,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -55,6 +56,15 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 
 private const val BASE_URL = "http://192.168.10.1"
 private const val HEALTH_URL = "$BASE_URL/api/health"
@@ -539,15 +549,22 @@ fun StreamPage(
     var userStopped by remember { mutableStateOf(false) }
     var streamUrl by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var piBackendStatus by remember { mutableStateOf<String?>(null) }
     var hlsLive by remember { mutableStateOf<Boolean?>(null) }
     var driveAccountEmail by remember { mutableStateOf<String?>(null) }
+    val errorLogs = remember { mutableStateListOf<String>() }
+
+    // Drawer + OTP + Schedule + Error Logs state
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    var showOtpDialog by remember { mutableStateOf(false) }
+    var pendingOtp by remember { mutableStateOf("") }
+    var showScheduleDialog by remember { mutableStateOf(false) }
+    var showErrorLogsDialog by remember { mutableStateOf(false) }
+
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val scrollState = rememberScrollState()
 
     // Always poll cloud HLS status every 3s regardless of whether Start was pressed.
-    // This means if the Pi is already streaming, the player appears without needing to tap Start.
     LaunchedEffect(deviceId) {
         while (true) {
             try {
@@ -578,7 +595,7 @@ fun StreamPage(
         mutableStateOf(PiBackendPrefs.getRawHostInput(context) ?: "")
     }
 
-    // Apply saved URLs when screen is shown.
+    // Apply saved URLs and check connectivity when screen is shown.
     LaunchedEffect(Unit) {
         val cloudSaved = CloudBackendPrefs.getRawHostInput(context)
         val piSaved = PiBackendPrefs.getRawHostInput(context)
@@ -595,24 +612,20 @@ fun StreamPage(
                 com.example.esp32pairingapp.network.ApiConfig.setPiBaseUrlOverride(baseUrl)
             }
         }
-        // Show Pi dialog first if not configured, then Cloud
         if (piSaved.isNullOrBlank()) showPiDialog = true
         else if (cloudSaved.isNullOrBlank()) showCloudDialog = true
 
-        // Check Pi backend connectivity.
         scope.launch {
             try {
                 val piUrl = com.example.esp32pairingapp.network.ApiConfig.getPiHealthUrl()
                 Log.d("StreamPage", "Checking Pi at: $piUrl")
                 withContext(Dispatchers.IO) { httpClient.get(piUrl, null) }
-                piBackendStatus = "✅ Pi backend reachable at $piUrl"
             } catch (e: Exception) {
-                piBackendStatus = formatConnectionError(e, "Pi", com.example.esp32pairingapp.network.ApiConfig.getPiHealthUrl())
+                errorLogs.add("Pi unreachable: ${e.message ?: "unknown error"}")
                 Log.e("StreamPage", "Pi check failed", e)
             }
         }
 
-        // Load saved Drive email; if we have a token, refresh from /api/auth/me
         driveAccountEmail = CloudBackendPrefs.getDriveAccountEmail(context)
         val token = CloudBackendPrefs.getAuthToken(context)
         if (!token.isNullOrBlank()) {
@@ -625,96 +638,74 @@ fun StreamPage(
                 if (email != null) {
                     driveAccountEmail = email
                     CloudBackendPrefs.setDriveAccountEmail(context, email)
-                    Log.d("StreamPage", "Drive logged in as: $email")
                 }
             } catch (_: Exception) { }
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-            .verticalScroll(scrollState)
-    ) {
-        // Header with back button
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Button(onClick = onBack) {
-                Text("← Back")
-            }
-            Text("Stream & Clips", style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.width(80.dp))
-        }
-
-        Spacer(Modifier.height(16.dp))
-
-        // Connection status indicator
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = if (network != null)
-                    MaterialTheme.colorScheme.primaryContainer
-                else
-                    MaterialTheme.colorScheme.tertiaryContainer
-            )
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet {
+                Spacer(Modifier.height(24.dp))
                 Text(
-                    text = if (network != null) "✅ Connected to ESP32 Network" else "📡 Backend",
-                    style = MaterialTheme.typography.bodyMedium
+                    "Options",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = androidx.compose.ui.Modifier.padding(horizontal = 16.dp)
                 )
+                Spacer(Modifier.height(16.dp))
+                HorizontalDivider()
                 Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "Cloud: ${com.example.esp32pairingapp.network.ApiConfig.getCloudBaseUrl()}",
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "Pi: ${com.example.esp32pairingapp.network.ApiConfig.getPiBaseUrl()}",
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (!driveAccountEmail.isNullOrBlank()) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = "Drive: logged in as $driveAccountEmail",
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-                Spacer(Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(onClick = { showCloudDialog = true }) {
-                        Text("Edit Cloud")
+
+                // Generate OTP
+                NavigationDrawerItem(
+                    label = { Text("Generate OTP") },
+                    selected = false,
+                    onClick = {
+                        pendingOtp = com.example.esp32pairingapp.pairing.OtpGenerator.generate()
+                        showOtpDialog = true
+                        scope.launch { drawerState.close() }
                     }
-                    Button(onClick = { showPiDialog = true }) {
-                        Text("Edit Pi")
+                )
+
+                // Edit Cloud IP
+                NavigationDrawerItem(
+                    label = { Text("Edit Cloud IP") },
+                    selected = false,
+                    onClick = {
+                        showCloudDialog = true
+                        scope.launch { drawerState.close() }
                     }
-                }
-                Spacer(Modifier.height(8.dp))
-                Button(
+                )
+
+                // Edit Pi IP
+                NavigationDrawerItem(
+                    label = { Text("Edit Pi IP") },
+                    selected = false,
+                    onClick = {
+                        showPiDialog = true
+                        scope.launch { drawerState.close() }
+                    }
+                )
+
+                // Connect Google Drive
+                NavigationDrawerItem(
+                    label = { Text("Connect Google Drive") },
+                    selected = false,
                     onClick = {
                         val authUrl = com.example.esp32pairingapp.network.ApiConfig.getCloudBaseUrl() + "/auth/google"
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)))
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Connect Google Drive")
-                }
-                Button(
+                        scope.launch { drawerState.close() }
+                    }
+                )
+
+                // Disconnect Google Drive
+                NavigationDrawerItem(
+                    label = { Text("Disconnect Google Drive") },
+                    selected = false,
                     onClick = {
                         scope.launch {
+                            drawerState.close()
                             try {
                                 val token = CloudBackendPrefs.getAuthToken(context)
                                 if (!token.isNullOrBlank()) {
@@ -732,58 +723,161 @@ fun StreamPage(
                                 CloudBackendPrefs.setDriveAccountEmail(context, null)
                                 driveAccountEmail = null
                                 Log.d("StreamPage", "Logged out from Drive")
-                                onLogout()
+                                errorMessage = "Logged out from Google Drive"
                             } catch (e: Exception) {
                                 errorMessage = "Log out failed: ${e.message}"
                             }
                         }
+                    }
+                )
+
+                // Set Schedule
+                NavigationDrawerItem(
+                    label = { Text("Set Schedule") },
+                    selected = false,
+                    onClick = {
+                        showScheduleDialog = true
+                        scope.launch { drawerState.close() }
+                    }
+                )
+
+                // Error Logs
+                NavigationDrawerItem(
+                    label = {
+                        Text(
+                            if (errorLogs.isNotEmpty()) "Error Logs (${errorLogs.size})"
+                            else "Error Logs"
+                        )
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.ErrorOutline,
+                            contentDescription = "Error Logs",
+                            tint = if (errorLogs.isNotEmpty()) MaterialTheme.colorScheme.error
+                                   else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
+                    selected = false,
+                    onClick = {
+                        showErrorLogsDialog = true
+                        scope.launch { drawerState.close() }
+                    }
+                )
+
+                // Drive status info
+                if (!driveAccountEmail.isNullOrBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    HorizontalDivider()
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Drive: $driveAccountEmail",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = androidx.compose.ui.Modifier.padding(horizontal = 16.dp)
                     )
-                ) {
-                    Text("Log out from Google Drive")
                 }
             }
         }
-
-        Spacer(Modifier.height(16.dp))
-
-        // Quick backend reachability indicator
-        if (piBackendStatus != null) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = piBackendStatus!!,
-                style = MaterialTheme.typography.bodySmall,
-                color = if (piBackendStatus!!.startsWith("✅")) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.error
-            )
-        }
-
-        // Live Stream Control Section
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer
-            )
+    ) {
+        Column(
+            modifier = androidx.compose.ui.Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp)
+                .verticalScroll(scrollState)
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("Live Stream Control", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
+            // ── Header row: hamburger | title | Add (+) ────────────────────
+            Row(
+                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                    Icon(
+                        imageVector = Icons.Default.Menu,
+                        contentDescription = "Open options menu"
+                    )
+                }
+                Text("SentriHome", style = MaterialTheme.typography.titleLarge)
+                IconButton(onClick = { /* Add Device — coming soon */ }) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Add Device"
+                    )
+                }
+            }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Start Stream Button
-                    Button(
+            Spacer(Modifier.height(8.dp))
+
+            // Player area — edge-to-edge: the layout modifier breaks out of the
+            // Column's 16dp horizontal padding so the player spans the full screen width.
+            Box(
+                modifier = androidx.compose.ui.Modifier
+                    .height(220.dp)
+                    .layout { measurable, constraints ->
+                        val sidePadding = 16.dp.roundToPx()
+                        val fullWidth = constraints.maxWidth + sidePadding * 2
+                        val placeable = measurable.measure(
+                            constraints.copy(minWidth = fullWidth, maxWidth = fullWidth)
+                        )
+                        layout(constraints.maxWidth, placeable.height) {
+                            placeable.place(-sidePadding, 0)
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                when {
+                    isStreaming && hlsLive == true -> {
+                        HlsPlayerView(
+                            playlistUrl = com.example.esp32pairingapp.network.ApiConfig.getStreamPlaylistUrl(deviceId),
+                            modifier = androidx.compose.ui.Modifier.fillMaxSize()
+                        )
+                    }
+                    isStreaming -> {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator()
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                "Waiting for stream...",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                "Ensure Pi can reach Cloud",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
+                    }
+                    else -> {
+                        androidx.compose.foundation.Canvas(
+                            modifier = androidx.compose.ui.Modifier.fillMaxSize()
+                        ) {
+                            drawRect(color = androidx.compose.ui.graphics.Color.Black)
+                        }
+                        Text(
+                            "Stream offline",
+                            color = androidx.compose.ui.graphics.Color.White,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // ── Stream control icon buttons ─────────────────────────────────
+            Row(
+                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                // Start Cam
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    FilledIconButton(
                         onClick = {
                             scope.launch {
                                 isLoadingStream = true
                                 errorMessage = null
                                 try {
-                                    // POST to Pi backend (use null = default network to reach Pi on LAN)
                                     val url = com.example.esp32pairingapp.network.ApiConfig.getStartStreamUrl()
                                     Log.d("StreamPage", "Start stream POST to: $url")
                                     val response = withContext(Dispatchers.IO) {
@@ -794,49 +888,26 @@ fun StreamPage(
                                             null
                                         )
                                     }
-
                                     Log.d("StreamPage", "Start response: $response")
-
                                     val json = JSONObject(response)
                                     val status = json.optString("status", "error")
-
                                     if (status == "ok" || status == "success") {
                                         userStopped = false
                                         isStreaming = true
                                         hlsLive = null
-                                        streamUrl = com.example.esp32pairingapp.network.ApiConfig
-                                            .getStreamPlaylistUrl(deviceId)
-                                        // Poll the cloud stream status until the first segments
-                                        // arrive (Pi takes a couple of seconds to push to S3).
-                                        errorMessage = "⏳ Waiting for stream…"
-                                        val statusUrl = com.example.esp32pairingapp.network.ApiConfig
-                                            .getStreamStatusUrl(deviceId)
-                                        var live = false
-                                        for (attempt in 1..15) {
-                                            delay(1000)
-                                            try {
-                                                val st = withContext(Dispatchers.IO) {
-                                                    httpClient.get(statusUrl, null)
-                                                }
-                                                if (org.json.JSONObject(st).optBoolean("live", false)) {
-                                                    live = true
-                                                    break
-                                                }
-                                            } catch (_: Exception) {}
-                                        }
-                                        errorMessage = if (live) "✅ Stream started successfully"
-                                            else "⚠️ Stream started but no signal yet"
+                                        streamUrl = com.example.esp32pairingapp.network.ApiConfig.getStreamPlaylistUrl(deviceId)
+                                        errorMessage = "✅ Stream started. Waiting for segments..."
                                     } else {
                                         errorMessage = "⚠️ Start failed: ${json.optString("message", "Unknown error")}"
                                     }
                                 } catch (e: Exception) {
                                     val errMsg = e.message ?: ""
                                     if (errMsg.contains("409") || errMsg.contains("already running", ignoreCase = true)) {
-                                        // Stream already running on Pi — treat as success, the poller will pick it up
                                         userStopped = false
                                         isStreaming = true
                                         errorMessage = "✅ Stream already running. Waiting for cloud segments..."
                                     } else {
+                                        errorLogs.add("Start stream failed: ${e.message ?: "unknown"}")
                                         errorMessage = formatConnectionError(e, "Pi", com.example.esp32pairingapp.network.ApiConfig.getStartStreamUrl())
                                     }
                                     Log.e("StreamPage", "Start stream error", e)
@@ -846,19 +917,34 @@ fun StreamPage(
                             }
                         },
                         enabled = !isLoadingStream && !isStreaming,
-                        modifier = Modifier.weight(1f)
+                        modifier = androidx.compose.ui.Modifier.size(56.dp)
                     ) {
-                        Text(if (isLoadingStream) "Starting..." else "▶️ Start")
+                        if (isLoadingStream && !isStreaming) {
+                            CircularProgressIndicator(
+                                modifier = androidx.compose.ui.Modifier.size(24.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = "Start Cam",
+                                modifier = androidx.compose.ui.Modifier.size(28.dp)
+                            )
+                        }
                     }
+                    Spacer(Modifier.height(4.dp))
+                    Text("Start Cam", style = MaterialTheme.typography.labelMedium)
+                }
 
-                    // Stop Stream Button
-                    Button(
+                // Stop Cam
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    FilledIconButton(
                         onClick = {
                             scope.launch {
                                 isLoadingStream = true
                                 errorMessage = null
                                 try {
-                                    // POST to Pi backend (use null = default network)
                                     val response = withContext(Dispatchers.IO) {
                                         httpClient.post(
                                             com.example.esp32pairingapp.network.ApiConfig.getStopStreamUrl(),
@@ -867,15 +953,14 @@ fun StreamPage(
                                             null
                                         )
                                     }
-
                                     Log.d("StreamPage", "Stop response: $response")
-
                                     userStopped = true
                                     isStreaming = false
                                     hlsLive = false
                                     streamUrl = null
-                                    errorMessage = "⏹️ Stream stopped"
+                                    errorMessage = "Stream stopped"
                                 } catch (e: Exception) {
+                                    errorLogs.add("Stop stream failed: ${e.message ?: "unknown"}")
                                     errorMessage = formatConnectionError(e, "Pi", com.example.esp32pairingapp.network.ApiConfig.getStopStreamUrl())
                                     Log.e("StreamPage", "Stop stream error", e)
                                 } finally {
@@ -884,132 +969,231 @@ fun StreamPage(
                             }
                         },
                         enabled = !isLoadingStream && isStreaming,
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(
+                        modifier = androidx.compose.ui.Modifier.size(56.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = MaterialTheme.colorScheme.error
                         )
                     ) {
-                        Text("⏹️ Stop")
+                        Icon(
+                            imageVector = Icons.Default.Stop,
+                            contentDescription = "Stop Cam",
+                            modifier = androidx.compose.ui.Modifier.size(28.dp)
+                        )
                     }
+                    Spacer(Modifier.height(4.dp))
+                    Text("Stop Cam", style = MaterialTheme.typography.labelMedium)
                 }
 
-                Spacer(Modifier.height(8.dp))
-
-                // Trigger Motion Button
-                Button(
-                    onClick = {
-                        scope.launch {
-                            isLoadingStream = true
-                            errorMessage = null
-                                try {
-                                // POST to Pi backend (use null = default network to reach Pi on LAN)
-                                val motionUrl = com.example.esp32pairingapp.network.ApiConfig.getMotionTriggerUrl()
-                                Log.d("StreamPage", "Motion POST to: $motionUrl")
-                                val response = withContext(Dispatchers.IO) {
-                                    httpClient.post(
-                                        motionUrl,
-                                        "",
-                                        "application/json",
-                                        null
-                                    )
-                                }
-
-                                Log.d("StreamPage", "Motion response: $response")
-                                val msg = runCatching { JSONObject(response).optString("message", "") }.getOrNull() ?: ""
-                                if (msg.contains("cloud backend", ignoreCase = true)) {
-                                    errorMessage = "❌ Wrong backend! Motion hit Cloud (3001) not Pi (4000). Tap Edit Pi and set Pi IP (port 4000)."
-                                } else {
-                                    errorMessage = "📸 Motion triggered! Clip will be saved to Google Drive. Tap \"Load Clips from Drive\" below to refresh the list."
-                                }
-                                delay(2000)
-                            } catch (e: Exception) {
-                                errorMessage = formatConnectionError(e, "Pi", com.example.esp32pairingapp.network.ApiConfig.getMotionTriggerUrl())
-                                Log.e("StreamPage", "Motion trigger error", e)
-                            } finally {
-                                isLoadingStream = false
-                            }
-                        }
-                    },
-                    enabled = !isLoadingStream,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("📸 Trigger Motion & Save Clip")
-                }
-
-                if (isStreaming) {
-                    Spacer(Modifier.height(12.dp))
-                    when {
-                        hlsLive == true -> {
-                            val playlistUrl = com.example.esp32pairingapp.network.ApiConfig.getStreamPlaylistUrl(deviceId)
-                            HlsPlayerView(
-                                playlistUrl = playlistUrl,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(220.dp)
-                            )
-                        }
-                        else -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(220.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    CircularProgressIndicator()
-                                    Spacer(Modifier.height(12.dp))
-                                    Text(
-                                        "Waiting for stream...",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                                    )
-                                    Text(
-                                        "Ensure Pi can reach Cloud (CLOUD_BASE_URL in config.json)",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
             }
-        }
 
-        Spacer(Modifier.height(16.dp))
+            // ── Saved Clips section ─────────────────────────────────────────
+            Spacer(Modifier.height(28.dp))
+            Text("Saved Clips", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            SavedClipsContent(
+                httpClient = httpClient,
+                onError = { errorMessage = it.ifBlank { null } },
+                showTitle = false
+            )
 
-        // Recorded Clips Section (shared with Watch saved clips screen)
-        SavedClipsContent(
-            httpClient = httpClient,
-            onError = { errorMessage = it.ifBlank { null } }
-        )
-
-        // Status/Error message display
-        if (errorMessage != null) {
-            Spacer(Modifier.height(16.dp))
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = when {
-                        errorMessage!!.startsWith("✅") -> MaterialTheme.colorScheme.primaryContainer
-                        errorMessage!!.startsWith("⚠️") -> MaterialTheme.colorScheme.tertiaryContainer
-                        errorMessage!!.startsWith("❌") -> MaterialTheme.colorScheme.errorContainer
-                        else -> MaterialTheme.colorScheme.surfaceVariant
-                    }
-                )
+            // ── Motion Sensors section ──────────────────────────────────────
+            Spacer(Modifier.height(28.dp))
+            Text("Motion Sensors", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                Text(
-                    text = errorMessage!!,
-                    modifier = Modifier.padding(16.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 10,
-                    overflow = TextOverflow.Ellipsis
-                )
+                // Arm System
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    FilledIconButton(
+                        onClick = { /* Arm System — coming soon */ },
+                        modifier = androidx.compose.ui.Modifier.size(56.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = "Arm System",
+                            modifier = androidx.compose.ui.Modifier.size(28.dp)
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text("Arm System", style = MaterialTheme.typography.labelMedium)
+                }
+
+                // Disarm System
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    FilledIconButton(
+                        onClick = { /* Disarm System — coming soon */ },
+                        modifier = androidx.compose.ui.Modifier.size(56.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.secondary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LockOpen,
+                            contentDescription = "Disarm System",
+                            modifier = androidx.compose.ui.Modifier.size(28.dp)
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text("Disarm System", style = MaterialTheme.typography.labelMedium)
+                }
             }
+
+            // ── Status / error message ──────────────────────────────────────
+            if (errorMessage != null) {
+                Spacer(Modifier.height(16.dp))
+                Card(
+                    modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = when {
+                            errorMessage!!.startsWith("✅") -> MaterialTheme.colorScheme.primaryContainer
+                            errorMessage!!.startsWith("⚠️") -> MaterialTheme.colorScheme.tertiaryContainer
+                            errorMessage!!.startsWith("❌") -> MaterialTheme.colorScheme.errorContainer
+                            else -> MaterialTheme.colorScheme.surfaceVariant
+                        }
+                    )
+                ) {
+                    Text(
+                        text = errorMessage!!,
+                        modifier = androidx.compose.ui.Modifier.padding(16.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 10,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
         }
     }
 
-    // Cloud backend dialog (Edit Cloud)
+    // ── Dialogs ─────────────────────────────────────────────────────────────
+
+    // OTP dialog (triggered from Options drawer)
+    if (showOtpDialog && pendingOtp.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { /* prevent accidental dismiss */ },
+            title = { Text("SET OTP") },
+            text = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Your One-Time Password:", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = pendingOtp,
+                        style = MaterialTheme.typography.displaySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text("Send this OTP to the ESP32?", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val otpToSend = pendingOtp
+                    showOtpDialog = false
+                    pendingOtp = ""
+                    scope.launch {
+                        try {
+                            withContext(Dispatchers.IO) {
+                                httpClient.post(
+                                    url = ONETIMEPASS_URL,
+                                    body = "otp=${URLEncoder.encode(otpToSend, "UTF-8")}",
+                                    contentType = "application/x-www-form-urlencoded",
+                                    network = null
+                                )
+                            }
+                            errorMessage = "OTP sent successfully ✅"
+                        } catch (e: Exception) {
+                            errorMessage = "Failed to send OTP ❌: ${e.message}"
+                        }
+                    }
+                }) { Text("Yes") }
+            },
+            dismissButton = {
+                Button(onClick = {
+                    showOtpDialog = false
+                    pendingOtp = ""
+                }) { Text("No") }
+            }
+        )
+    }
+
+    // Schedule dialog
+    if (showScheduleDialog) {
+        AlertDialog(
+            onDismissRequest = { showScheduleDialog = false },
+            title = { Text("Set Schedule") },
+            text = {
+                ScheduleSection(
+                    httpClient = httpClient,
+                    onStatus = {
+                        errorMessage = it
+                        showScheduleDialog = false
+                    }
+                )
+            },
+            confirmButton = {},
+            dismissButton = {
+                Button(onClick = { showScheduleDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+
+    // Error Logs dialog
+    if (showErrorLogsDialog) {
+        AlertDialog(
+            onDismissRequest = { showErrorLogsDialog = false },
+            title = { Text("Error Logs") },
+            text = {
+                Column(
+                    modifier = androidx.compose.ui.Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 320.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    if (errorLogs.isEmpty()) {
+                        Text(
+                            "No errors logged.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        errorLogs.forEachIndexed { index, log ->
+                            Text(
+                                text = "${index + 1}. $log",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = androidx.compose.ui.Modifier.padding(vertical = 4.dp)
+                            )
+                            if (index < errorLogs.lastIndex) {
+                                HorizontalDivider()
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        errorLogs.clear()
+                        showErrorLogsDialog = false
+                    }
+                ) {
+                    Text("Clear All")
+                }
+            },
+            dismissButton = {
+                Button(onClick = { showErrorLogsDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+
+    // Edit Cloud dialog
     if (showCloudDialog) {
         AlertDialog(
             onDismissRequest = { showCloudDialog = false },
@@ -1027,7 +1211,7 @@ fun StreamPage(
                         label = { Text("Cloud host or IP") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = androidx.compose.ui.Modifier.fillMaxWidth()
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
@@ -1051,19 +1235,15 @@ fun StreamPage(
                         }
                     },
                     enabled = cloudHostInput.isNotBlank()
-                ) {
-                    Text("Save")
-                }
+                ) { Text("Save") }
             },
             dismissButton = {
-                Button(onClick = { showCloudDialog = false }) {
-                    Text("Cancel")
-                }
+                Button(onClick = { showCloudDialog = false }) { Text("Cancel") }
             }
         )
     }
 
-    // Pi backend dialog (Edit Pi)
+    // Edit Pi dialog
     if (showPiDialog) {
         AlertDialog(
             onDismissRequest = { showPiDialog = false },
@@ -1081,7 +1261,7 @@ fun StreamPage(
                         label = { Text("Pi host or IP") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = androidx.compose.ui.Modifier.fillMaxWidth()
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
@@ -1099,7 +1279,6 @@ fun StreamPage(
                             PiBackendPrefs.setRawHostInput(context, piHostInput)
                             com.example.esp32pairingapp.network.ApiConfig.setPiBaseUrlOverride(baseUrl)
                             errorMessage = "✅ Pi backend set to $baseUrl"
-                            piBackendStatus = null
                             showPiDialog = false
                             if (CloudBackendPrefs.getRawHostInput(context).isNullOrBlank()) {
                                 showCloudDialog = true
@@ -1109,14 +1288,10 @@ fun StreamPage(
                         }
                     },
                     enabled = piHostInput.isNotBlank()
-                ) {
-                    Text("Save")
-                }
+                ) { Text("Save") }
             },
             dismissButton = {
-                Button(onClick = { showPiDialog = false }) {
-                    Text("Cancel")
-                }
+                Button(onClick = { showPiDialog = false }) { Text("Cancel") }
             }
         )
     }
