@@ -213,7 +213,7 @@ fun IntruderAlertOverlay(
                     }
                 }
 
-                // ── WAS ME: show cooldown + fake alarm-off ──────────────────
+                // ── WAS ME: show cooldown ───────────────────────────────────
                 AlertState.WAS_ME -> {
                     Text("✅", fontSize = 72.sp, textAlign = TextAlign.Center)
 
@@ -231,21 +231,6 @@ fun IntruderAlertOverlay(
                         fontSize  = 18.sp,
                         color     = Color.White.copy(alpha = 0.8f)
                     )
-
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors   = CardDefaults.cardColors(
-                            containerColor = Color.White.copy(alpha = 0.1f)
-                        )
-                    ) {
-                        Text(
-                            text      = "⚠️  Alarm system is simulated.\nNo alerts will fire for the next 5 minutes.",
-                            fontSize  = 13.sp,
-                            color     = Color.White.copy(alpha = 0.6f),
-                            textAlign = TextAlign.Center,
-                            modifier  = Modifier.padding(12.dp)
-                        )
-                    }
 
                     Spacer(Modifier.height(8.dp))
 
@@ -274,21 +259,6 @@ fun IntruderAlertOverlay(
                         fontSize  = 15.sp,
                         color     = Color.White.copy(alpha = 0.7f)
                     )
-
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors   = CardDefaults.cardColors(
-                            containerColor = Color.White.copy(alpha = 0.1f)
-                        )
-                    ) {
-                        Text(
-                            text      = "⚠️  Alarm system is simulated.\nIn a real deployment a siren / strobe would activate.",
-                            fontSize  = 13.sp,
-                            color     = Color.White.copy(alpha = 0.6f),
-                            textAlign = TextAlign.Center,
-                            modifier  = Modifier.padding(12.dp)
-                        )
-                    }
 
                     Spacer(Modifier.height(8.dp))
 
