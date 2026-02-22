@@ -523,29 +523,69 @@ fun StreamPage(
                     modifier = androidx.compose.ui.Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                 )
 
-                // Simulate intruder alert — triggers the overlay immediately without backend
+                // Fires a real alert via the backend (uses your auth token → guaranteed to match your account)
                 NavigationDrawerItem(
-                    label = { Text("🚨  Simulate Intruder Alert") },
+                    label = { Text("🔔  Fire Real Motion Alert") },
+                    selected = false,
+                    onClick = {
+                        scope.launch {
+                            drawerState.close()
+                            try {
+                                val token = CloudBackendPrefs.getAuthToken(context) ?: ""
+                                val resp = withContext(Dispatchers.IO) {
+                                    httpClient.post(
+                                        url         = com.example.esp32pairingapp.network.ApiConfig.getMotionTestUrl(),
+                                        body        = "{}",
+                                        contentType = "application/json",
+                                        network     = null,
+                                        authToken   = token
+                                    )
+                                }
+                                val json = org.json.JSONObject(resp)
+                                errorMessage = "✅ Alert created for ${json.optString("ownerEmail")} — wait up to 15 s"
+                            } catch (e: Exception) {
+                                errorMessage = "❌ Could not fire test alert: ${e.message}"
+                            }
+                        }
+                    }
+                )
+
+                // Instant local UI preview — no network needed
+                NavigationDrawerItem(
+                    label = { Text("👁  Preview Alert UI (local)") },
                     selected = false,
                     onClick = {
                         scope.launch { drawerState.close() }
                         activeMotionAlert = com.example.esp32pairingapp.alerts.MotionAlertInfo(
-                            id          = "test-${System.currentTimeMillis()}",
-                            deviceId    = "pi-1 (simulated)",
+                            id          = "preview-${System.currentTimeMillis()}",
+                            deviceId    = "pi-1 (preview)",
                             createdAtMs = System.currentTimeMillis(),
                         )
                     }
                 )
 
-                // Drive status info
+                // Account info
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(8.dp))
                 if (!driveAccountEmail.isNullOrBlank()) {
-                    Spacer(Modifier.height(8.dp))
-                    HorizontalDivider()
-                    Spacer(Modifier.height(8.dp))
                     Text(
-                        "Drive: $driveAccountEmail",
+                        "✅ Signed in as:",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = androidx.compose.ui.Modifier.padding(horizontal = 16.dp)
+                    )
+                    Text(
+                        driveAccountEmail!!,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
+                        modifier = androidx.compose.ui.Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+                    )
+                } else {
+                    Text(
+                        "⚠️ Not signed in — alerts won't arrive",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
                         modifier = androidx.compose.ui.Modifier.padding(horizontal = 16.dp)
                     )
                 }

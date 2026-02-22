@@ -44,6 +44,7 @@ object ApiConfig {
         const val WIFI_STATUS = "/api/wifistatus"
         const val MOTION_LATEST = "/api/motion/latest"
         const val MOTION_ACKNOWLEDGE = "/api/motion"  // + "/{id}/acknowledge"
+        const val MOTION_TEST = "/api/motion/test"
     }
 
     // Pi Backend Endpoints (port 4000)
@@ -106,6 +107,9 @@ object ApiConfig {
     /** POST /api/motion/{alertId}/acknowledge */
     fun getAcknowledgeMotionUrl(alertId: String) =
         "${cloudBaseUrl()}${CloudEndpoints.MOTION_ACKNOWLEDGE}/$alertId/acknowledge"
+
+    /** POST /api/motion/test — creates a real alert attributed to the logged-in user */
+    fun getMotionTestUrl() = "${cloudBaseUrl()}${CloudEndpoints.MOTION_TEST}"
 
     // Get base URLs (useful for debugging)
     fun getCloudBaseUrl() = cloudBaseUrl()

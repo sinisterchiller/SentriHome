@@ -408,24 +408,44 @@ app.post("/api/motion", async (req, res) => {
  * App polls this every ~15 s to check for unacknowledged motion alerts.
  * Returns the newest pending alert, or null if there is none or if the
  * user is still within a "was_me" cooldown window.
+ *
+ * Matching strategy (most inclusive first):
+ *   1. Alerts explicitly attributed to req.user.email
+ *   2. Alerts from devices owned by this user (ownerEmail may be null on the
+ *      alert if the Pi called /api/motion before the device was linked)
  */
 app.get("/api/motion/latest", requireAuth, async (req, res) => {
+  const userEmail = req.user.email;
+
+  // Collect deviceIds owned by this user so we can match un-attributed alerts.
+  const ownedDevices = await Device.find({ ownerEmail: userEmail }, "deviceId").lean();
+  const ownedDeviceIds = ownedDevices.map((d) => d.deviceId);
+
+  const matchQuery = {
+    status: "pending",
+    $or: [
+      { ownerEmail: userEmail },
+      ...(ownedDeviceIds.length ? [{ deviceId: { $in: ownedDeviceIds }, ownerEmail: null }] : []),
+    ],
+  };
+
   // If the user recently said "was me", suppress alerts until cooldown expires.
   const activeCooldown = await MotionAlert.findOne({
-    ownerEmail: req.user.email,
-    cooldownUntil: { $gt: new Date() },
+    $or: [
+      { ownerEmail: userEmail, cooldownUntil: { $gt: new Date() } },
+      ...(ownedDeviceIds.length
+        ? [{ deviceId: { $in: ownedDeviceIds }, cooldownUntil: { $gt: new Date() } }]
+        : []),
+    ],
   }).sort({ createdAt: -1 }).lean();
 
   if (activeCooldown) {
     return res.json({ alert: null, cooldownUntil: activeCooldown.cooldownUntil });
   }
 
-  const alert = await MotionAlert.findOne({
-    ownerEmail: req.user.email,
-    status: "pending",
-  }).sort({ createdAt: -1 }).lean();
+  const alert = await MotionAlert.findOne(matchQuery).sort({ createdAt: -1 }).lean();
 
-  if (!alert) return res.json({ alert: null, cooldownUntil: null });
+  if (!alert) return res.json({ alert: null, cooldownUntil: null, debug: { userEmail, ownedDeviceIds } });
 
   res.json({
     alert: {
@@ -437,6 +457,22 @@ app.get("/api/motion/latest", requireAuth, async (req, res) => {
     },
     cooldownUntil: null,
   });
+});
+
+/**
+ * POST /api/motion/test
+ * Creates a test motion alert attributed directly to the logged-in user.
+ * Use this to verify the full backend → app polling path without needing
+ * device linking or real hardware.
+ */
+app.post("/api/motion/test", requireAuth, async (req, res) => {
+  const alert = await MotionAlert.create({
+    deviceId:   "test-device",
+    ownerEmail: req.user.email,
+    eventId:    null,
+  });
+  console.log(`🧪 Test motion alert for ${req.user.email}: ${alert._id}`);
+  res.json({ status: "ok", alertId: alert._id, ownerEmail: req.user.email });
 });
 
 /**
