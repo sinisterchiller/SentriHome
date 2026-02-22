@@ -468,7 +468,7 @@ app.post("/api/motion/:alertId/acknowledge", async (req, res) => {
   // }
 
   const cooldownUntil = action === "was_me"
-    ? new Date(Date.now() + 5 * 60 * 1000)
+    ? new Date(Date.now() + 30 * 1000)
     : null;
 
   await MotionAlert.findByIdAndUpdate(req.params.alertId, {

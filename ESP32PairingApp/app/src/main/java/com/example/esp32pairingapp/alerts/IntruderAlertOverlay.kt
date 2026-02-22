@@ -57,7 +57,7 @@ fun IntruderAlertOverlay(
 
     var alertState     by remember { mutableStateOf(AlertState.WAITING) }
     var isLoading      by remember { mutableStateOf(false) }
-    var cooldownSecs   by remember { mutableIntStateOf(5 * 60) }
+    var cooldownSecs   by remember { mutableIntStateOf(30) }
 
     // Background color transitions between states
     val bgColor by animateColorAsState(
