@@ -58,6 +58,7 @@ private const val NEWPASS_URL = "$BASE_URL/api/newpass"
 private const val ENCRYPTEDPASS_URL = "$BASE_URL/api/encryptedpass"
 
 private const val ONETIMEPASS_URL = "$BASE_URL/api/onetimepass"
+private const val PERMANENTPASS_URL = "$BASE_URL/api/permanentpass"
 private const val WIFISTATUS_URL = "$BASE_URL/api/wifistatus"
 private const val POLL_INTERVAL_MS = 750L
 private const val POLL_TIMEOUT_MS = 60_000L
@@ -131,6 +132,9 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
     var pendingOtp by remember { mutableStateOf("") }
     var showOtpDialog by remember { mutableStateOf(false) }
     var showScheduleSection by remember { mutableStateOf(false) }
+    var showPermanentPassDialog by remember { mutableStateOf(false) }
+    var permanentPass by remember { mutableStateOf("") }
+    var permanentPassError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
 
@@ -225,6 +229,18 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Generate OTP")
+        }
+        Spacer(Modifier.height(8.dp))
+
+        Button(
+            onClick = {
+                permanentPass = ""
+                permanentPassError = null
+                showPermanentPassDialog = true
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Set Permanent Password")
         }
         Spacer(Modifier.height(8.dp))
 
@@ -385,6 +401,76 @@ fun WifiManualScreen(httpClient: EspHttpClient) {
                     pendingOtp = ""
                     status = "OTP cancelled. Resend credentials to generate a new OTP."
                 }) { Text("No") }
+            }
+        )
+    }
+
+    if (showPermanentPassDialog) {
+        val allowedChars = ('0'..'9').toSet() + ('A'..'D').toSet() + setOf('#', '*')
+
+        AlertDialog(
+            onDismissRequest = { showPermanentPassDialog = false },
+            title = { Text("Set Permanent Password") },
+            text = {
+                Column {
+                    Text(
+                        text = "Allowed characters: 0-9, A, B, C, D, #, *",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = permanentPass,
+                        onValueChange = { newValue ->
+                            val upper = newValue.uppercase()
+                            if (upper.all { ch -> ch in allowedChars }) {
+                                permanentPass = upper
+                                permanentPassError = null
+                            } else {
+                                permanentPassError = "Only 0-9, A-D, # and * are allowed"
+                            }
+                        },
+                        label = { Text("Password") },
+                        isError = permanentPassError != null,
+                        supportingText = permanentPassError?.let { err -> { Text(err) } },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (permanentPass.isEmpty()) {
+                            permanentPassError = "Password cannot be empty"
+                            return@Button
+                        }
+                        val passToSend = permanentPass
+                        showPermanentPassDialog = false
+                        scope.launch {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    httpClient.post(
+                                        url = PERMANENTPASS_URL,
+                                        body = "pass=${URLEncoder.encode(passToSend, "UTF-8")}",
+                                        contentType = "application/x-www-form-urlencoded",
+                                        network = null
+                                    )
+                                }
+                                status = "Permanent password set successfully ✅"
+                            } catch (e: Exception) {
+                                status = "Failed to set permanent password ❌: ${e.message}"
+                            }
+                        }
+                    }
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                Button(onClick = {
+                    showPermanentPassDialog = false
+                    permanentPass = ""
+                    permanentPassError = null
+                }) { Text("Cancel") }
             }
         )
     }
